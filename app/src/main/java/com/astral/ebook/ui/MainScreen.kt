@@ -39,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,7 +50,6 @@ import com.astral.ebook.model.FooterOptions
 import com.astral.ebook.model.Margins
 import com.astral.ebook.model.Metadata
 import com.astral.ebook.model.Orientation
-import com.astral.ebook.model.OutputFormat
 import com.astral.ebook.model.Presets
 import com.astral.ebook.model.ThemeOptions
 import com.astral.ebook.model.ParagraphAlignment
@@ -170,15 +168,18 @@ fun MainScreen(
             SectionTitle("Metadata")
             MetadataFields(uiState.settings.metadata, onMetadataChange)
 
-            SectionTitle("Output format")
+            SectionTitle("Cover")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(OutputFormat.EPUB, OutputFormat.PDF).forEach { format ->
-                    FilterChip(
-                        selected = uiState.settings.outputFormat == format,
-                        onClick = { onSettingsChange { copy(outputFormat = format) } },
-                        label = { Text(format.name) }
-                    )
-                }
+                FilterChip(
+                    selected = !uiState.settings.coverOptions.fullBleed,
+                    onClick = { onSettingsChange { copy(coverOptions = coverOptions.copy(fullBleed = false)) } },
+                    label = { Text("With margin") }
+                )
+                FilterChip(
+                    selected = uiState.settings.coverOptions.fullBleed,
+                    onClick = { onSettingsChange { copy(coverOptions = coverOptions.copy(fullBleed = true)) } },
+                    label = { Text("Full bleed") }
+                )
             }
 
             SectionTitle("Page preset")
@@ -324,7 +325,7 @@ fun MainScreen(
                 enabled = uiState.bodyUri != null && !uiState.isGenerating,
                 onClick = onGenerate
             ) {
-                Text("Generate ${uiState.settings.outputFormat.name}")
+                Text("Generate PDF")
             }
 
             TextButton(onClick = onSaveDefaults) {
@@ -396,6 +397,9 @@ private fun FooterControls(footer: FooterOptions, onChange: (FooterOptions) -> U
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Page number", modifier = Modifier.weight(1f))
                 Switch(checked = footer.showPageNumber, onCheckedChange = { onChange(footer.copy(showPageNumber = it)) })
+            }
+            NumberField("Footer size (pt)", footer.fontSize) {
+                onChange(footer.copy(fontSize = it))
             }
         }
     }

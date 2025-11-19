@@ -3,8 +3,6 @@ package com.astral.ebook.model
 import androidx.compose.ui.graphics.Color
 import java.time.Year
 
-enum class OutputFormat { EPUB, PDF }
-
 data class PagePreset(
     val name: String,
     val widthPx: Int,
@@ -19,7 +17,12 @@ data class FooterOptions(
     val showFooter: Boolean = true,
     val showTitle: Boolean = true,
     val showSubtitle: Boolean = true,
-    val showPageNumber: Boolean = true
+    val showPageNumber: Boolean = true,
+    val fontSize: Float = 9f
+)
+
+data class CoverOptions(
+    val fullBleed: Boolean = false
 )
 
 data class FontOptions(
@@ -29,7 +32,7 @@ data class FontOptions(
     val titleFontUri: String? = null,
     val headingFontUri: String? = null,
     val bodyFontUri: String? = null,
-    val titleSize: Float = 42f,
+    val titleSize: Float = 32f,
     val subtitleSize: Float = 18f,
     val headingSize: Float = 24f,
     val bodySize: Float = 12f,
@@ -69,14 +72,14 @@ data class ThemeOptions(
 
 data class EbookSettings(
     val metadata: Metadata = Metadata(),
-    val outputFormat: OutputFormat = OutputFormat.EPUB,
     val pagePreset: PagePreset = Presets.mobile,
     val margins: Margins = Margins(60f, 60f, 60f, 60f),
     val orientation: Orientation = Orientation.Portrait,
     val fonts: FontOptions = FontOptions(),
     val paragraphOptions: ParagraphOptions = ParagraphOptions(),
     val footerOptions: FooterOptions = FooterOptions(),
-    val themeOptions: ThemeOptions = ThemeOptions()
+    val themeOptions: ThemeOptions = ThemeOptions(),
+    val coverOptions: CoverOptions = CoverOptions()
 )
 
 enum class Orientation { Portrait, Landscape }
