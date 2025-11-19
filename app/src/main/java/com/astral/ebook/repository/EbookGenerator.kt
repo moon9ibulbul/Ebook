@@ -290,7 +290,7 @@ object EbookGenerator {
         }
 
         paragraph.runs.forEach { run ->
-            val words = run.text.split(Regex("\s+")).filter { it.isNotEmpty() }
+            val words = run.text.split(Regex("""\s+""")).filter { it.isNotEmpty() }
             for (word in words) {
                 var token = if (currentSegments.isEmpty()) word else " $word"
                 var paint = palette.bodyPaint(run.bold, run.italic)
