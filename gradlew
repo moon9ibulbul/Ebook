@@ -9,7 +9,47 @@ APP_HOME=`cd "$(dirname "$0")"; pwd -P`
 
 DEFAULT_JVM_OPTS="-Xmx64m -Xms64m"
 
-CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+WRAPPER_JAR_B64="$WRAPPER_JAR.base64"
+
+if [ ! -f "$WRAPPER_JAR" ] && [ -f "$WRAPPER_JAR_B64" ]; then
+    echo "Gradle wrapper JAR missing; rebuilding from base64 archive..." >&2
+    if command -v base64 >/dev/null 2>&1; then
+        if base64 -d "$WRAPPER_JAR_B64" > "$WRAPPER_JAR" 2>/dev/null; then
+            :
+        elif base64 --decode "$WRAPPER_JAR_B64" > "$WRAPPER_JAR" 2>/dev/null; then
+            :
+        elif base64 -D "$WRAPPER_JAR_B64" > "$WRAPPER_JAR" 2>/dev/null; then
+            :
+        else
+            rm -f "$WRAPPER_JAR"
+        fi
+    fi
+
+    if [ ! -f "$WRAPPER_JAR" ] && command -v python3 >/dev/null 2>&1; then
+        python3 - "$WRAPPER_JAR_B64" "$WRAPPER_JAR" <<'PY'
+import base64
+import pathlib
+import sys
+
+b64_path = pathlib.Path(sys.argv[1])
+jar_path = pathlib.Path(sys.argv[2])
+jar_path.write_bytes(base64.b64decode(b64_path.read_text()))
+PY
+    fi
+
+    if [ ! -f "$WRAPPER_JAR" ]; then
+        echo "Unable to rebuild Gradle wrapper JAR: install 'base64' (with -d/--decode) or 'python3'." >&2
+        exit 1
+    fi
+fi
+
+if [ ! -f "$WRAPPER_JAR" ]; then
+    echo "Gradle wrapper JAR is missing and could not be restored." >&2
+    exit 1
+fi
+
+CLASSPATH=$WRAPPER_JAR
 
 if [ -n "$JAVA_HOME" ] ; then
     JAVA_EXE="$JAVA_HOME/bin/java"
