@@ -1,12 +1,14 @@
 package com.astral.ebook.datastore
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.astral.ebook.model.CoverOptions
 import com.astral.ebook.model.EbookSettings
 import com.astral.ebook.model.FontFamilyOption
 import com.astral.ebook.model.FontOptions
@@ -14,7 +16,6 @@ import com.astral.ebook.model.FooterOptions
 import com.astral.ebook.model.Margins
 import com.astral.ebook.model.Metadata
 import com.astral.ebook.model.Orientation
-import com.astral.ebook.model.OutputFormat
 import com.astral.ebook.model.ParagraphAlignment
 import com.astral.ebook.model.ParagraphOptions
 import com.astral.ebook.model.ThemeOptions
@@ -28,7 +29,6 @@ class SettingsStore(private val context: Context) {
         val TITLE = stringPreferencesKey("title")
         val SUBTITLE = stringPreferencesKey("subtitle")
         val AUTHOR = stringPreferencesKey("author")
-        val OUTPUT = stringPreferencesKey("output_format")
         val TITLE_FAMILY = stringPreferencesKey("title_family")
         val HEADING_FAMILY = stringPreferencesKey("heading_family")
         val BODY_FAMILY = stringPreferencesKey("body_family")
@@ -40,6 +40,7 @@ class SettingsStore(private val context: Context) {
         val LINE_HEIGHT = floatPreferencesKey("line_height")
         val ALIGNMENT = stringPreferencesKey("alignment")
         val FOOTER = intPreferencesKey("footer_flags")
+        val FOOTER_SIZE = floatPreferencesKey("footer_size")
         val ORIENTATION = stringPreferencesKey("orientation")
         val MARGIN_TOP = floatPreferencesKey("margin_top")
         val MARGIN_BOTTOM = floatPreferencesKey("margin_bottom")
@@ -48,6 +49,7 @@ class SettingsStore(private val context: Context) {
         val DARK_OVERRIDE = stringPreferencesKey("dark_override")
         val PAGE_COLOR = stringPreferencesKey("page_color")
         val TEXT_COLOR = stringPreferencesKey("text_color")
+        val COVER_FULL_BLEED = booleanPreferencesKey("cover_full_bleed")
     }
 
     val settings: Flow<EbookSettings> = context.dataStore.data.map { prefs ->
@@ -67,29 +69,29 @@ class SettingsStore(private val context: Context) {
             headingFontUri = prefs[Keys.HEADING_FONT_URI]?.takeIf { it.isNotBlank() },
             bodyFontUri = prefs[Keys.BODY_FONT_URI]?.takeIf { it.isNotBlank() },
             bodySize = prefs[Keys.BODY_SIZE] ?: 12f,
-            titleSize = prefs[Keys.TITLE_SIZE] ?: 42f,
+            titleSize = prefs[Keys.TITLE_SIZE] ?: FontOptions().titleSize,
             lineHeight = prefs[Keys.LINE_HEIGHT] ?: 1.5f
         )
-        val footerFlags = prefs[Keys.FOOTER] ?: 0b111
+        val footerFlags = prefs[Keys.FOOTER] ?: 0b1111
         val footer = FooterOptions(
             showFooter = footerFlags and 0b001 > 0,
             showTitle = footerFlags and 0b010 > 0,
             showSubtitle = footerFlags and 0b100 > 0,
-            showPageNumber = true
+            showPageNumber = if (footerFlags > 0b111) footerFlags and 0b1000 > 0 else true,
+            fontSize = prefs[Keys.FOOTER_SIZE] ?: FooterOptions().fontSize
         )
         EbookSettings(
             metadata = metadata,
-            outputFormat = when (prefs[Keys.OUTPUT]) {
-                OutputFormat.PDF.name -> OutputFormat.PDF
-                else -> OutputFormat.EPUB
-            },
             fonts = fonts,
             paragraphOptions = ParagraphOptions(
                 alignment = prefs[Keys.ALIGNMENT]?.let { ParagraphAlignment.valueOf(it) }
                     ?: ParagraphAlignment.Justify
             ),
             footerOptions = footer,
-            orientation = prefs[Keys.ORIENTATION]?.let { Orientation.valueOf(it) } ?: Orientation.Portrait
+            orientation = prefs[Keys.ORIENTATION]?.let { Orientation.valueOf(it) } ?: Orientation.Portrait,
+            coverOptions = CoverOptions(
+                fullBleed = prefs[Keys.COVER_FULL_BLEED] ?: false
+            )
         ).copy(
             margins = Margins(
                 top = prefs[Keys.MARGIN_TOP] ?: 60f,
@@ -114,7 +116,6 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.TITLE] = settings.metadata.title
             prefs[Keys.SUBTITLE] = settings.metadata.subtitle
             prefs[Keys.AUTHOR] = settings.metadata.author
-            prefs[Keys.OUTPUT] = settings.outputFormat.name
             prefs[Keys.TITLE_FAMILY] = settings.fonts.titleFamily.name
             prefs[Keys.HEADING_FAMILY] = settings.fonts.headingFamily.name
             prefs[Keys.BODY_FAMILY] = settings.fonts.bodyFamily.name
@@ -139,7 +140,9 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.ALIGNMENT] = settings.paragraphOptions.alignment.name
             prefs[Keys.FOOTER] = (if (settings.footerOptions.showFooter) 0b001 else 0) or
                 (if (settings.footerOptions.showTitle) 0b010 else 0) or
-                (if (settings.footerOptions.showSubtitle) 0b100 else 0)
+                (if (settings.footerOptions.showSubtitle) 0b100 else 0) or
+                (if (settings.footerOptions.showPageNumber) 0b1000 else 0)
+            prefs[Keys.FOOTER_SIZE] = settings.footerOptions.fontSize
             prefs[Keys.ORIENTATION] = settings.orientation.name
             prefs[Keys.MARGIN_TOP] = settings.margins.top
             prefs[Keys.MARGIN_BOTTOM] = settings.margins.bottom
@@ -148,6 +151,7 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.DARK_OVERRIDE] = settings.themeOptions.useDark?.toString() ?: ""
             prefs[Keys.PAGE_COLOR] = settings.themeOptions.pageBackground.toHexString()
             prefs[Keys.TEXT_COLOR] = settings.themeOptions.textColor.toHexString()
+            prefs[Keys.COVER_FULL_BLEED] = settings.coverOptions.fullBleed
         }
     }
 }

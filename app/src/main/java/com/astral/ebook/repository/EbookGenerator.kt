@@ -8,30 +8,25 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Environment
+import android.text.TextPaint
+import android.text.TextUtils
 import androidx.compose.ui.graphics.toArgb
 import com.astral.ebook.model.EbookSettings
 import com.astral.ebook.model.FontFamilyOption
-import com.astral.ebook.model.FontTarget
-import com.astral.ebook.model.OutputFormat
 import com.astral.ebook.model.Orientation
 import com.astral.ebook.model.ParagraphAlignment
-import com.astral.ebook.repository.DocumentContent
-import com.astral.ebook.repository.FormattedParagraph
-import com.astral.ebook.repository.TextRun
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
+import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Contains EPUB and PDF generation logic.
+ * Contains PDF generation logic.
  *
  * Default values for fonts, margins, colors, etc. are defined inside [EbookSettings].
  * Adjust those defaults inside model/FormattingModels.kt to tweak presets globally.
@@ -43,18 +38,13 @@ object EbookGenerator {
         body: DocumentContent,
         coverImage: Uri?
     ): File = withContext(Dispatchers.IO) {
-        val ext = if (settings.outputFormat == OutputFormat.EPUB) "epub" else "pdf"
-        val filename = "Astral_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.$ext"
+        val filename = "Astral_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.pdf"
         val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
             ?.takeIf { it.exists() || it.mkdirs() }
             ?: context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
             ?: context.filesDir
         val outFile = File(documentsDir, filename)
-        if (settings.outputFormat == OutputFormat.EPUB) {
-            generateEpub(context, outFile, settings, body, coverImage)
-        } else {
-            generatePdf(context, outFile, settings, body, coverImage)
-        }
+        generatePdf(context, outFile, settings, body, coverImage)
         outFile
     }
 
@@ -75,7 +65,7 @@ object EbookGenerator {
         val palette = PdfPaintPalette(context, settings)
         val backgroundColor = settings.themeOptions.pageBackground.toArgb()
         val margins = settings.margins
-        val contentWidth = pageWidth - (margins.start + margins.end)
+        val contentWidth = pageWidth.toFloat() - (margins.start + margins.end)
         val lines = buildLineContent(body, settings, palette, contentWidth)
         var lineIndex = 0
         var pageNumber = 1
@@ -83,53 +73,54 @@ object EbookGenerator {
         drawCoverPage(doc, pageInfo, settings, palette, backgroundColor, coverImage, context)
         drawTitlePage(doc, pageInfo, settings, palette, backgroundColor)
 
+        var isFirstBodyPage = true
+
         if (lines.isEmpty()) {
             val page = doc.startPage(pageInfo)
             val canvas = page.canvas
             canvas.drawColor(backgroundColor)
-            val header = buildHeaderText(settings)
-            if (header.isNotBlank()) {
-                canvas.drawText(
-                    header,
-                    margins.start,
-                    margins.top + palette.headerPaint.textSize,
-                    palette.headerPaint
-                )
-            }
-            val footerText = buildFooterText(settings, pageNumber)
-            if (footerText.isNotBlank()) {
-                canvas.drawText(
-                    footerText,
-                    margins.start,
-                    pageHeight - margins.bottom / 2f,
-                    palette.footerPaint
-                )
-            }
+            drawBodyHeading(canvas, settings, palette, pageInfo, contentWidth)
+            val footer = buildFooterContent(settings, pageNumber)
+            footer?.let { drawFooter(canvas, it, pageWidth, pageHeight, margins, palette) }
             doc.finishPage(page)
+            pageNumber++
         } else {
             while (lineIndex < lines.size) {
                 val page = doc.startPage(pageInfo)
                 val canvas = page.canvas
                 canvas.drawColor(backgroundColor)
-                val header = buildHeaderText(settings)
-                val footerText = buildFooterText(settings, pageNumber)
-                val headerSpace = palette.headerSpace(header)
-                val footerSpace = palette.footerSpace(footerText)
-                if (header.isNotBlank()) {
-                    canvas.drawText(
-                        header,
-                        margins.start,
-                        margins.top + palette.headerPaint.textSize,
-                        palette.headerPaint
-                    )
+                var headingOffset = 0f
+                if (isFirstBodyPage) {
+                    headingOffset = drawBodyHeading(canvas, settings, palette, pageInfo, contentWidth)
+                    isFirstBodyPage = false
                 }
-                var y = margins.top + headerSpace + palette.lineHeight
-                while (lineIndex < lines.size && y < pageHeight - margins.bottom - footerSpace) {
+                val footer = buildFooterContent(settings, pageNumber)
+                val footerSpace = palette.footerSpace(footer)
+                var y = margins.top + headingOffset + palette.lineHeight
+                while (lineIndex < lines.size && y < pageHeight.toFloat() - margins.bottom - footerSpace) {
                     when (val line = lines[lineIndex]) {
                         is LineContent.Text -> {
-                            var x = margins.start + line.indent
+                            val lineWidth = line.segments.sumOf {
+                                palette.bodyPaint(
+                                    it.bold,
+                                    it.italic,
+                                    it.underline,
+                                    it.strikeThrough
+                                ).measureText(it.text)
+                            }.toFloat()
+                            val startX = when (line.alignment) {
+                                ParagraphAlignment.Left, ParagraphAlignment.Justify -> margins.start + line.indent
+                                ParagraphAlignment.Center -> margins.start + (contentWidth - lineWidth) / 2f
+                                ParagraphAlignment.Right -> pageWidth.toFloat() - margins.end - lineWidth
+                            }
+                            var x = startX
                             line.segments.forEach { segment ->
-                                val paint = palette.bodyPaint(segment.bold, segment.italic)
+                                val paint = palette.bodyPaint(
+                                    segment.bold,
+                                    segment.italic,
+                                    segment.underline,
+                                    segment.strikeThrough
+                                )
                                 canvas.drawText(segment.text, x, y, paint)
                                 x += paint.measureText(segment.text)
                             }
@@ -141,18 +132,14 @@ object EbookGenerator {
                     }
                     lineIndex++
                 }
-                if (footerText.isNotBlank()) {
-                    canvas.drawText(
-                        footerText,
-                        margins.start,
-                        pageHeight - margins.bottom / 2f,
-                        palette.footerPaint
-                    )
-                }
+                footer?.let { drawFooter(canvas, it, pageWidth, pageHeight, margins, palette) }
                 doc.finishPage(page)
                 pageNumber++
             }
         }
+
+        pageNumber = drawMetadataPage(doc, pageInfo, settings, palette, backgroundColor, pageNumber)
+
         FileOutputStream(file).use { doc.writeTo(it) }
         doc.close()
     }
@@ -169,38 +156,63 @@ object EbookGenerator {
         val page = document.startPage(pageInfo)
         val canvas = page.canvas
         canvas.drawColor(backgroundColor)
+        var drewImage = false
         coverImage?.let { uri ->
             context.contentResolver.openInputStream(uri)?.use { input ->
                 val bitmap = BitmapFactory.decodeStream(input)
                 bitmap?.let {
-                    val availableWidth = (pageInfo.pageWidth - (settings.margins.start + settings.margins.end)).toFloat()
-                    val availableHeight = pageInfo.pageHeight.toFloat() * 0.6f
-                    val scale = min(
-                        availableWidth / it.width.toFloat(),
-                        availableHeight / it.height.toFloat()
-                    )
-                    val destWidth = it.width.toFloat() * scale
-                    val destHeight = it.height.toFloat() * scale
-                    val left = (pageInfo.pageWidth.toFloat() - destWidth) / 2f
-                    val top = settings.margins.top.toFloat()
-                    canvas.drawBitmap(
-                        it,
-                        null,
-                        RectF(left, top, left + destWidth, top + destHeight),
-                        null
-                    )
+                    val destRect = if (settings.coverOptions.fullBleed) {
+                        val widthScale = pageInfo.pageWidth.toFloat() / it.width.toFloat()
+                        val heightScale = pageInfo.pageHeight.toFloat() / it.height.toFloat()
+                        val scale = max(widthScale, heightScale)
+                        val destWidth = it.width * scale
+                        val destHeight = it.height * scale
+                        val left = (pageInfo.pageWidth.toFloat() - destWidth) / 2f
+                        val top = (pageInfo.pageHeight.toFloat() - destHeight) / 2f
+                        RectF(left, top, left + destWidth, top + destHeight)
+                    } else {
+                        val availableWidth = pageInfo.pageWidth.toFloat() - (settings.margins.start + settings.margins.end)
+                        val availableHeight = pageInfo.pageHeight.toFloat() - (settings.margins.top + settings.margins.bottom)
+                        val scale = min(
+                            availableWidth / it.width.toFloat(),
+                            availableHeight / it.height.toFloat()
+                        )
+                        val destWidth = it.width * scale
+                        val destHeight = it.height * scale
+                        val left = (pageInfo.pageWidth.toFloat() - destWidth) / 2f
+                        val top = (pageInfo.pageHeight.toFloat() - destHeight) / 2f
+                        RectF(left, top, left + destWidth, top + destHeight)
+                    }
+                    canvas.drawBitmap(it, null, destRect, null)
                     it.recycle()
+                    drewImage = true
                 }
             }
         }
-        val centerX = pageInfo.pageWidth.toFloat() / 2f
-        var y = pageInfo.pageHeight.toFloat() * 0.8f
-        if (settings.metadata.title.isNotBlank()) {
-            drawCenteredText(canvas, settings.metadata.title, centerX, y, palette.titlePaint)
-            y += palette.titlePaint.fontSpacing
-        }
-        if (settings.metadata.subtitle.isNotBlank()) {
-            drawCenteredText(canvas, settings.metadata.subtitle, centerX, y, palette.subtitlePaint)
+        if (!drewImage) {
+            val contentWidth = pageInfo.pageWidth.toFloat() - (settings.margins.start + settings.margins.end)
+            val centerX = pageInfo.pageWidth.toFloat() / 2f
+            val titleLines = wrapText(settings.metadata.title, palette.titlePaint, contentWidth)
+            val subtitleLines = wrapText(settings.metadata.subtitle, palette.subtitlePaint, contentWidth)
+            val titleHeight = titleLines.size * palette.titlePaint.fontSpacing
+            val subtitleHeight = subtitleLines.size * palette.subtitlePaint.fontSpacing
+            val spacing = if (titleLines.isNotEmpty() && subtitleLines.isNotEmpty()) palette.subtitlePaint.fontSpacing else 0f
+            var y = (pageInfo.pageHeight.toFloat() - (titleHeight + subtitleHeight + spacing)) / 2f
+            if (titleLines.isNotEmpty()) {
+                var baseline = y + palette.titlePaint.textSize
+                titleLines.forEach { line ->
+                    drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.titlePaint)
+                    baseline += palette.titlePaint.fontSpacing
+                }
+                y += titleHeight + spacing
+            }
+            if (subtitleLines.isNotEmpty()) {
+                var baseline = y + palette.subtitlePaint.textSize
+                subtitleLines.forEach { line ->
+                    drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.subtitlePaint)
+                    baseline += palette.subtitlePaint.fontSpacing
+                }
+            }
         }
         document.finishPage(page)
     }
@@ -215,30 +227,172 @@ object EbookGenerator {
         val page = document.startPage(pageInfo)
         val canvas = page.canvas
         canvas.drawColor(backgroundColor)
-        var y = settings.margins.top + palette.titlePaint.textSize
-        if (settings.metadata.title.isNotBlank()) {
-            canvas.drawText(settings.metadata.title, settings.margins.start, y, palette.titlePaint)
-            y += palette.titlePaint.fontSpacing
+        val contentWidth = pageInfo.pageWidth.toFloat() - (settings.margins.start + settings.margins.end)
+        val centerX = pageInfo.pageWidth.toFloat() / 2f
+        val titleLines = wrapText(settings.metadata.title, palette.titlePaint, contentWidth)
+        val subtitleLines = wrapText(settings.metadata.subtitle, palette.subtitlePaint, contentWidth)
+        val titleHeight = titleLines.size * palette.titlePaint.fontSpacing
+        val subtitleHeight = subtitleLines.size * palette.subtitlePaint.fontSpacing
+        val spacing = if (titleLines.isNotEmpty() && subtitleLines.isNotEmpty()) palette.subtitlePaint.fontSpacing else 0f
+        var y = (pageInfo.pageHeight.toFloat() - (titleHeight + subtitleHeight + spacing)) / 2f
+        if (titleLines.isNotEmpty()) {
+            var baseline = y + palette.titlePaint.textSize
+            titleLines.forEach { line ->
+                drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.titlePaint)
+                baseline += palette.titlePaint.fontSpacing
+            }
+            y += titleHeight + spacing
         }
-        if (settings.metadata.subtitle.isNotBlank()) {
-            canvas.drawText(settings.metadata.subtitle, settings.margins.start, y, palette.subtitlePaint)
-            y += palette.subtitlePaint.fontSpacing
-        }
-        val metaInfo = listOfNotNull(
-            settings.metadata.author.takeIf { it.isNotBlank() }?.let { "Author: $it" },
-            settings.metadata.publisher.takeIf { it.isNotBlank() }?.let { "Publisher: $it" },
-            settings.metadata.publicationYear.takeIf { it.isNotBlank() }?.let { "Year: $it" },
-            settings.metadata.language.takeIf { it.isNotBlank() }?.let { "Language: $it" },
-            settings.metadata.translator.takeIf { it.isNotBlank() }?.let { "Translator: $it" }
-        )
-        metaInfo.forEach { info ->
-            canvas.drawText(info, settings.margins.start, y, palette.baseBodyPaint)
-            y += palette.baseBodyPaint.fontSpacing
+        if (subtitleLines.isNotEmpty()) {
+            var baseline = y + palette.subtitlePaint.textSize
+            subtitleLines.forEach { line ->
+                drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.subtitlePaint)
+                baseline += palette.subtitlePaint.fontSpacing
+            }
         }
         document.finishPage(page)
     }
 
-    private fun drawCenteredText(canvas: android.graphics.Canvas, text: String, centerX: Float, centerY: Float, paint: Paint) {
+    private fun drawBodyHeading(
+        canvas: android.graphics.Canvas,
+        settings: EbookSettings,
+        palette: PdfPaintPalette,
+        pageInfo: PdfDocument.PageInfo,
+        contentWidth: Float
+    ): Float {
+        val title = settings.metadata.title
+        val subtitle = settings.metadata.subtitle
+        if (title.isBlank() && subtitle.isBlank()) return 0f
+        val centerX = pageInfo.pageWidth.toFloat() / 2f
+        val titleLines = wrapText(title, palette.titlePaint, contentWidth)
+        val subtitleLines = wrapText(subtitle, palette.subtitlePaint, contentWidth)
+        var consumed = 0f
+        if (titleLines.isNotEmpty()) {
+            var baseline = settings.margins.top + palette.titlePaint.textSize
+            titleLines.forEach { line ->
+                drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.titlePaint)
+                baseline += palette.titlePaint.fontSpacing
+            }
+            consumed = baseline - settings.margins.top
+        }
+        if (subtitleLines.isNotEmpty()) {
+            val spacing = if (titleLines.isNotEmpty()) palette.subtitlePaint.fontSpacing * 0.5f else 0f
+            var baseline = settings.margins.top + consumed + spacing + palette.subtitlePaint.textSize
+            subtitleLines.forEach { line ->
+                drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.subtitlePaint)
+                baseline += palette.subtitlePaint.fontSpacing
+            }
+            consumed = baseline - settings.margins.top
+        }
+        return consumed + palette.headingGap
+    }
+
+    private fun drawMetadataPage(
+        document: PdfDocument,
+        pageInfo: PdfDocument.PageInfo,
+        settings: EbookSettings,
+        palette: PdfPaintPalette,
+        backgroundColor: Int,
+        pageNumber: Int
+    ): Int {
+        val meta = settings.metadata
+        val entries = listOfNotNull(
+            meta.author.takeIf { it.isNotBlank() }?.let { "Author" to it },
+            meta.translator.takeIf { it.isNotBlank() }?.let { "Translator" to it },
+            meta.publisher.takeIf { it.isNotBlank() }?.let { "Publisher" to it },
+            meta.publicationYear.takeIf { it.isNotBlank() }?.let { "Year" to it },
+            meta.language.takeIf { it.isNotBlank() }?.let { "Language" to it },
+            meta.notes.takeIf { it.isNotBlank() }?.let { "Notes" to it }
+        )
+        if (entries.isEmpty()) return pageNumber
+        val page = document.startPage(pageInfo)
+        val canvas = page.canvas
+        canvas.drawColor(backgroundColor)
+        val contentWidth = pageInfo.pageWidth.toFloat() - (settings.margins.start + settings.margins.end)
+        val centerX = pageInfo.pageWidth.toFloat() / 2f
+        var y = settings.margins.top
+        val titleLines = wrapText(meta.title, palette.titlePaint, contentWidth)
+        if (titleLines.isNotEmpty()) {
+            var baseline = y + palette.titlePaint.textSize
+            titleLines.forEach { line ->
+                drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.titlePaint)
+                baseline += palette.titlePaint.fontSpacing
+            }
+            y += titleLines.size * palette.titlePaint.fontSpacing
+        }
+        val subtitleLines = wrapText(meta.subtitle, palette.subtitlePaint, contentWidth)
+        if (subtitleLines.isNotEmpty()) {
+            var baseline = y + palette.subtitlePaint.textSize
+            subtitleLines.forEach { line ->
+                drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.subtitlePaint)
+                baseline += palette.subtitlePaint.fontSpacing
+            }
+            y += subtitleLines.size * palette.subtitlePaint.fontSpacing
+        }
+        y += palette.baseBodyPaint.fontSpacing
+        val labelMaxWidth = entries.maxOf { palette.metadataLabelPaint.measureText(it.first) }
+        val colonX = settings.margins.start + labelMaxWidth + 12f
+        val valueStart = colonX + palette.metadataLabelPaint.measureText(":") + 8f
+        val valueWidth = pageInfo.pageWidth.toFloat() - settings.margins.end - valueStart
+        entries.forEach { (label, value) ->
+            val labelX = (settings.margins.start + labelMaxWidth) - palette.metadataLabelPaint.measureText(label)
+            val valueLines = wrapText(value, palette.baseBodyPaint, valueWidth)
+            var baseline = y + palette.baseBodyPaint.textSize
+            canvas.drawText(label, labelX, baseline, palette.metadataLabelPaint)
+            canvas.drawText(":", colonX, baseline, palette.metadataLabelPaint)
+            if (valueLines.isNotEmpty()) {
+                canvas.drawText(valueLines.first(), valueStart, baseline, palette.baseBodyPaint)
+                var innerBaseline = baseline + palette.baseBodyPaint.fontSpacing
+                valueLines.drop(1).forEach { line ->
+                    canvas.drawText(line, valueStart, innerBaseline, palette.baseBodyPaint)
+                    innerBaseline += palette.baseBodyPaint.fontSpacing
+                }
+                y = innerBaseline
+            } else {
+                y = baseline + palette.baseBodyPaint.fontSpacing
+            }
+        }
+        val footer = buildFooterContent(settings, pageNumber)
+        footer?.let { drawFooter(canvas, it, pageInfo.pageWidth, pageInfo.pageHeight, settings.margins, palette) }
+        document.finishPage(page)
+        return pageNumber + 1
+    }
+
+    private fun drawFooter(
+        canvas: android.graphics.Canvas,
+        footer: FooterContent,
+        pageWidth: Int,
+        pageHeight: Int,
+        margins: com.astral.ebook.model.Margins,
+        palette: PdfPaintPalette
+    ) {
+        val paint = palette.footerPaint
+        val textPaint = TextPaint(paint)
+        val baseline = pageHeight.toFloat() - margins.bottom / 2f
+        val contentWidth = pageWidth.toFloat() - (margins.start + margins.end)
+        val rightText = if (footer.right.isNotBlank()) {
+            TextUtils.ellipsize(footer.right, textPaint, contentWidth, TextUtils.TruncateAt.END).toString()
+        } else {
+            ""
+        }
+        val rightWidth = paint.measureText(rightText)
+        if (rightText.isNotBlank()) {
+            canvas.drawText(rightText, pageWidth.toFloat() - margins.end - rightWidth, baseline, paint)
+        }
+        if (footer.left.isNotBlank()) {
+            val maxLeftWidth = (contentWidth - rightWidth - 16f).coerceAtLeast(0f)
+            val leftText = TextUtils.ellipsize(footer.left, textPaint, maxLeftWidth, TextUtils.TruncateAt.END).toString()
+            canvas.drawText(leftText, margins.start, baseline, paint)
+        }
+    }
+
+    private fun drawCenteredText(
+        canvas: android.graphics.Canvas,
+        text: String,
+        centerX: Float,
+        centerY: Float,
+        paint: Paint
+    ) {
         val width = paint.measureText(text)
         canvas.drawText(text, centerX - width / 2f, centerY, paint)
     }
@@ -252,7 +406,8 @@ object EbookGenerator {
         val lines = mutableListOf<LineContent>()
         body.paragraphs.forEachIndexed { index, paragraph ->
             val applyIndent = !(index == 0 && settings.paragraphOptions.skipIndentAfterHeading)
-            val paragraphLines = wrapParagraph(paragraph, palette, contentWidth, applyIndent)
+            val alignment = paragraph.alignment ?: settings.paragraphOptions.alignment
+            val paragraphLines = wrapParagraph(paragraph, palette, contentWidth, applyIndent, alignment)
             lines += paragraphLines
             if (palette.paragraphSpacingPx > 0f) {
                 lines += LineContent.Spacer(palette.paragraphSpacingPx)
@@ -268,19 +423,22 @@ object EbookGenerator {
         paragraph: FormattedParagraph,
         palette: PdfPaintPalette,
         contentWidth: Float,
-        indentFirstLine: Boolean
+        indentFirstLine: Boolean,
+        alignment: ParagraphAlignment
     ): List<LineContent.Text> {
         if (paragraph.runs.all { it.text.isBlank() }) return emptyList()
         val lines = mutableListOf<LineContent.Text>()
+        val shouldIndent = indentFirstLine && alignment.allowsIndent()
         var isFirstLine = true
-        var currentIndent = if (indentFirstLine) palette.indentPx else 0f
+        var currentIndent = if (shouldIndent) palette.indentPx else 0f
         var availableWidth = contentWidth - currentIndent
-        var currentWidth = 0f
         var currentSegments = mutableListOf<TextRunSegment>()
+        var currentWidth = 0f
 
         fun flush() {
             if (currentSegments.isNotEmpty()) {
-                lines += LineContent.Text(currentSegments.toList(), if (isFirstLine && indentFirstLine) palette.indentPx else 0f)
+                val indentForLine = if (isFirstLine) currentIndent else 0f
+                lines += LineContent.Text(currentSegments.toList(), indentForLine, alignment)
                 currentSegments = mutableListOf()
                 currentWidth = 0f
                 isFirstLine = false
@@ -293,15 +451,15 @@ object EbookGenerator {
             val words = run.text.split(Regex("""\s+""")).filter { it.isNotEmpty() }
             for (word in words) {
                 var token = if (currentSegments.isEmpty()) word else " $word"
-                var paint = palette.bodyPaint(run.bold, run.italic)
+                var paint = palette.bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
                 var width = paint.measureText(token)
                 if (currentWidth + width > availableWidth && currentSegments.isNotEmpty()) {
                     flush()
                     token = word
-                    paint = palette.bodyPaint(run.bold, run.italic)
+                    paint = palette.bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
                     width = paint.measureText(token)
                 }
-                currentSegments += TextRunSegment(token, run.bold, run.italic)
+                currentSegments += TextRunSegment(token, run.bold, run.italic, run.underline, run.strikeThrough)
                 currentWidth += width
             }
         }
@@ -309,284 +467,65 @@ object EbookGenerator {
         return lines
     }
 
-    private fun buildHeaderText(settings: EbookSettings): String {
-        val parts = mutableListOf<String>()
-        if (settings.metadata.title.isNotBlank()) parts += settings.metadata.title
-        if (settings.metadata.subtitle.isNotBlank()) parts += settings.metadata.subtitle
-        return parts.joinToString(" · ")
+    private fun wrapText(text: String, paint: Paint, maxWidth: Float): List<String> {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        if (maxWidth <= 0f) return listOf(trimmed)
+        val words = trimmed.split(Regex("\s+"))
+        val lines = mutableListOf<String>()
+        var current = StringBuilder()
+        var currentWidth = 0f
+
+        fun flush() {
+            if (current.isNotEmpty()) {
+                lines += current.toString()
+                current = StringBuilder()
+                currentWidth = 0f
+            }
+        }
+
+        words.forEach { rawWord ->
+            var word = rawWord
+            if (paint.measureText(word) > maxWidth) {
+                flush()
+                while (word.isNotEmpty()) {
+                    val count = paint.breakText(word, true, maxWidth, null)
+                    lines += word.substring(0, count)
+                    word = word.substring(count)
+                }
+            } else {
+                val token = if (current.isEmpty()) word else " $word"
+                val width = paint.measureText(token)
+                if (currentWidth + width > maxWidth) {
+                    flush()
+                    current.append(word)
+                    currentWidth = paint.measureText(word)
+                } else {
+                    current.append(token)
+                    currentWidth += width
+                }
+            }
+        }
+        flush()
+        return lines
     }
 
-    private fun buildFooterText(settings: EbookSettings, pageNumber: Int): String {
-        if (!settings.footerOptions.showFooter) return ""
-        val parts = mutableListOf<String>()
+    private fun buildFooterContent(settings: EbookSettings, pageNumber: Int): FooterContent? {
+        if (!settings.footerOptions.showFooter) return null
+        val leftParts = mutableListOf<String>()
         if (settings.footerOptions.showTitle && settings.metadata.title.isNotBlank()) {
-            parts += settings.metadata.title
+            leftParts += settings.metadata.title
         }
         if (settings.footerOptions.showSubtitle && settings.metadata.subtitle.isNotBlank()) {
-            parts += settings.metadata.subtitle
+            leftParts += settings.metadata.subtitle
         }
-        if (settings.footerOptions.showPageNumber) {
-            parts += pageNumber.toString()
-        }
-        return parts.joinToString(" · ")
-    }
-
-    private fun generateEpub(
-        context: Context,
-        file: File,
-        settings: EbookSettings,
-        body: DocumentContent,
-        coverImage: Uri?
-    ) {
-        val customFonts = collectCustomFonts(settings)
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(file))).use { zip ->
-            zip.putNextEntry(ZipEntry("mimetype"))
-            zip.write("application/epub+zip".toByteArray())
-            zip.closeEntry()
-
-            zip.putNextEntry(ZipEntry("META-INF/"))
-            zip.closeEntry()
-            zip.putNextEntry(ZipEntry("META-INF/container.xml"))
-            zip.write(
-                """<?xml version='1.0' encoding='UTF-8'?>
-                <container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'>
-                    <rootfiles>
-                        <rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/>
-                    </rootfiles>
-                </container>""".trimIndent().toByteArray()
-            )
-            zip.closeEntry()
-
-            val css = buildCss(settings, customFonts)
-            zip.putNextEntry(ZipEntry("OEBPS/"))
-            zip.closeEntry()
-            zip.putNextEntry(ZipEntry("OEBPS/stylesheet.css"))
-            zip.write(css.toByteArray())
-            zip.closeEntry()
-
-            if (customFonts.isNotEmpty()) {
-                zip.putNextEntry(ZipEntry("OEBPS/fonts/"))
-                zip.closeEntry()
-                customFonts.forEach { font ->
-                    context.contentResolver.openInputStream(font.uri)?.use { input ->
-                        zip.putNextEntry(ZipEntry("OEBPS/fonts/${font.fileName}"))
-                        input.copyTo(zip)
-                        zip.closeEntry()
-                    }
-                }
-            }
-
-            val chapters = buildContentXhtml(settings, body, coverImage != null)
-            zip.putNextEntry(ZipEntry("OEBPS/content.xhtml"))
-            zip.write(chapters.toByteArray())
-            zip.closeEntry()
-
-            val metadataPage = buildMetadataPage(settings)
-            zip.putNextEntry(ZipEntry("OEBPS/metadata.xhtml"))
-            zip.write(metadataPage.toByteArray())
-            zip.closeEntry()
-
-            coverImage?.let { uri ->
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    zip.putNextEntry(ZipEntry("OEBPS/cover.bin"))
-                    input.copyTo(zip)
-                    zip.closeEntry()
-                }
-            }
-
-            zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
-            val manifest = buildOpf(settings, coverImage != null, customFonts)
-            zip.write(manifest.toByteArray())
-            zip.closeEntry()
-        }
-    }
-
-    private fun buildCss(settings: EbookSettings, customFonts: List<EmbeddedFont>): String {
-        val bodyFamily = settings.fonts.bodyFamily.cssValue(FontTarget.Body, customFonts)
-        val titleFamily = settings.fonts.titleFamily.cssValue(FontTarget.Title, customFonts)
-        val headingFamily = settings.fonts.headingFamily.cssValue(FontTarget.Heading, customFonts)
-        val fontFaces = if (customFonts.isEmpty()) "" else customFonts.joinToString("\n") { font ->
-            "@font-face { font-family: '${font.cssName}'; src: url('fonts/${font.fileName}'); }"
-        }
-        return """
-            $fontFaces
-            html, body {
-                width: ${settings.pagePreset.widthPx}px;
-                height: ${settings.pagePreset.heightPx}px;
-                margin: 0;
-            }
-            body {
-                background: ${settings.themeOptions.pageBackground.toHex()};
-                color: ${settings.themeOptions.textColor.toHex()};
-                font-family: $bodyFamily;
-                font-size: ${settings.fonts.bodySize}pt;
-                line-height: ${settings.fonts.lineHeight};
-                text-align: ${settings.paragraphOptions.alignment.css};
-            }
-            .page {
-                box-sizing: border-box;
-                padding: ${settings.margins.top}px ${settings.margins.end}px ${settings.margins.bottom}px ${settings.margins.start}px;
-                width: 100%;
-                height: 100%;
-                page-break-after: always;
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between;
-            }
-            h1.title {
-                font-size: ${settings.fonts.titleSize}pt;
-                text-align: center;
-                font-family: $titleFamily;
-            }
-            h2.subtitle {
-                font-size: ${settings.fonts.subtitleSize}pt;
-                text-align: center;
-                font-style: italic;
-                font-family: $headingFamily;
-            }
-            p {
-                text-indent: ${settings.paragraphOptions.firstLineIndentEm}em;
-                margin-bottom: ${settings.paragraphOptions.extraParagraphSpacing}px;
-            }
-            p:first-child {
-                text-indent: 0;
-            }
-            .body-text {
-                flex: 1;
-            }
-            footer.page-footer {
-                font-size: 10pt;
-                text-align: center;
-                color: #666666;
-            }
-            .metadata dt {
-                font-weight: bold;
-            }
-            .metadata dd {
-                margin: 0 0 12px 0;
-            }
-            .cover-page img {
-                width: 100%;
-                height: auto;
-            }
-        """.trimIndent()
-    }
-
-    private fun buildContentXhtml(settings: EbookSettings, body: DocumentContent, hasCover: Boolean): String {
-        val footerBuilder: (Int) -> String = { pageIndex ->
-            if (!settings.footerOptions.showFooter) "" else {
-                val parts = mutableListOf<String>()
-                if (settings.footerOptions.showTitle && settings.metadata.title.isNotBlank()) parts += settings.metadata.title
-                if (settings.footerOptions.showSubtitle && settings.metadata.subtitle.isNotBlank()) parts += settings.metadata.subtitle
-                if (settings.footerOptions.showPageNumber) parts += (pageIndex + 1).toString()
-                if (parts.isEmpty()) "" else "<footer class='page-footer'>${parts.joinToString(" · ")}</footer>"
-            }
-        }
-        val coverImage = if (hasCover) "<img src='cover.bin' alt='Cover image' />" else ""
-        val titlePageAuthor = listOfNotNull(
-            settings.metadata.author.takeIf { it.isNotBlank() }?.escapeHtml(),
-            settings.metadata.publisher.takeIf { it.isNotBlank() }?.escapeHtml()
-        ).joinToString("<br/>")
-        val chunks = chunkParagraphs(body, settings).ifEmpty { listOf(emptyList()) }
-        val bodyPages = chunks.mapIndexed { index, paragraphs ->
-            val pageParagraphs = if (paragraphs.isEmpty()) {
-                "<p>&nbsp;</p>"
-            } else {
-                paragraphs.joinToString(separator = "") { it.toHtmlParagraph() }
-            }
-            """
-                <section class='page body-page'>
-                    <div class='body-text'>$pageParagraphs</div>
-                    ${footerBuilder(index)}
-                </section>
-            """.trimIndent()
-        }.joinToString(separator = "")
-        return """
-            <?xml version='1.0' encoding='utf-8'?>
-            <html xmlns='http://www.w3.org/1999/xhtml'>
-                <head>
-                    <title>${settings.metadata.title.escapeHtml()}</title>
-                    <meta name='viewport' content='width=${settings.pagePreset.widthPx}, height=${settings.pagePreset.heightPx}' />
-                    <link href='stylesheet.css' rel='stylesheet' type='text/css'/>
-                </head>
-                <body>
-                    <section class='page cover-page'>
-                        $coverImage
-                        <h1 class='title'>${settings.metadata.title.escapeHtml()}</h1>
-                        <h2 class='subtitle'>${settings.metadata.subtitle.escapeHtml()}</h2>
-                    </section>
-                    <section class='page title-page'>
-                        <h1 class='title'>${settings.metadata.title.escapeHtml()}</h1>
-                        <h2 class='subtitle'>${settings.metadata.subtitle.escapeHtml()}</h2>
-                        ${if (titlePageAuthor.isBlank()) "" else "<p class='author'>$titlePageAuthor</p>"}
-                    </section>
-                    $bodyPages
-                </body>
-            </html>
-        """.trimIndent()
-    }
-
-    private fun buildMetadataPage(settings: EbookSettings): String {
-        fun field(label: String, value: String) =
-            if (value.isBlank()) "" else "<dt>$label</dt><dd>${value.escapeHtml()}</dd>"
-        val meta = settings.metadata
-        return """
-            <?xml version='1.0' encoding='utf-8'?>
-            <html xmlns='http://www.w3.org/1999/xhtml'>
-                <head>
-                    <title>Metadata</title>
-                    <link href='stylesheet.css' rel='stylesheet' type='text/css'/>
-                </head>
-                <body>
-                    <section class='page metadata'>
-                        <h2>${meta.title.escapeHtml()}</h2>
-                        <h3>${meta.subtitle.escapeHtml()}</h3>
-                        <dl class='metadata'>
-                            ${field("Author", meta.author)}
-                            ${field("Translator", meta.translator)}
-                            ${field("Publisher", meta.publisher)}
-                            ${field("Year", meta.publicationYear)}
-                            ${field("Language", meta.language)}
-                            ${field("Notes", meta.notes)}
-                        </dl>
-                    </section>
-                </body>
-            </html>
-        """.trimIndent()
-    }
-
-    private fun buildOpf(settings: EbookSettings, hasCover: Boolean, customFonts: List<EmbeddedFont>): String {
-        val fontItems = customFonts.joinToString(separator = "\n") { font ->
-            "<item id='font_${font.role.name.lowercase(Locale.US)}' href='fonts/${font.fileName}' media-type='${font.mediaType}'/>"
-        }
-        return """
-            <?xml version='1.0' encoding='utf-8'?>
-            <package version='3.0' xmlns='http://www.idpf.org/2007/opf' unique-identifier='bookid'>
-                <metadata xmlns:dc='http://purl.org/dc/elements/1.1/'>
-                    <dc:identifier id='bookid'>urn:uuid:${System.currentTimeMillis()}</dc:identifier>
-                    <dc:title>${settings.metadata.title.escapeHtml()}</dc:title>
-                    <dc:creator>${settings.metadata.author.escapeHtml()}</dc:creator>
-                    <dc:language>${settings.metadata.language.escapeHtml()}</dc:language>
-                    <meta property='dcterms:modified'>${SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(Date())}</meta>
-                    <meta property='rendition:layout'>pre-paginated</meta>
-                    <meta property='rendition:orientation'>${settings.orientation.name.lowercase(Locale.US)}</meta>
-                    <meta property='rendition:spread'>auto</meta>
-                </metadata>
-                <manifest>
-                    <item id='content' href='content.xhtml' media-type='application/xhtml+xml'/>
-                    <item id='metadata' href='metadata.xhtml' media-type='application/xhtml+xml'/>
-                    <item id='css' href='stylesheet.css' media-type='text/css'/>
-                    ${if (hasCover) "<item id='cover' href='cover.bin' media-type='image/*' properties='cover-image'/>" else ""}
-                    $fontItems
-                </manifest>
-                <spine>
-                    <itemref idref='content'/>
-                    <itemref idref='metadata'/>
-                </spine>
-            </package>
-        """.trimIndent()
+        val right = if (settings.footerOptions.showPageNumber) pageNumber.toString() else ""
+        if (leftParts.isEmpty() && right.isBlank()) return null
+        return FooterContent(leftParts.joinToString(" · "), right)
     }
 }
+
+private data class FooterContent(val left: String, val right: String)
 
 private class PdfPaintPalette(context: Context, settings: EbookSettings) {
     private val density = context.resources.displayMetrics.density
@@ -606,14 +545,9 @@ private class PdfPaintPalette(context: Context, settings: EbookSettings) {
         typeface = headingTypeface
         textSkewX = -0.1f
     }
-    val headerPaint: Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = textColor
-        textSize = settings.fonts.subtitleSize * density * 0.6f
-        typeface = headingTypeface
-    }
     val footerPaint: Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = textColor
-        textSize = settings.fonts.bodySize * density * 0.85f
+        textSize = settings.footerOptions.fontSize * density
         typeface = bodyTypeface
     }
     val baseBodyPaint: Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -621,118 +555,59 @@ private class PdfPaintPalette(context: Context, settings: EbookSettings) {
         textSize = settings.fonts.bodySize * density
         typeface = bodyTypeface
     }
-    private val styleCache = mutableMapOf<Pair<Boolean, Boolean>, Paint>()
-
+    val metadataLabelPaint: Paint = Paint(baseBodyPaint).apply {
+        typeface = Typeface.create(bodyTypeface, Typeface.BOLD)
+    }
     val lineHeight: Float = baseBodyPaint.fontSpacing * settings.fonts.lineHeight
     val paragraphSpacingPx: Float = settings.paragraphOptions.extraParagraphSpacing * density
     val indentPx: Float = baseBodyPaint.textSize * settings.paragraphOptions.firstLineIndentEm
+    val headingGap: Float = baseBodyPaint.fontSpacing
 
-    fun bodyPaint(bold: Boolean, italic: Boolean): Paint {
-        val key = bold to italic
+    private data class TextStyleKey(
+        val bold: Boolean,
+        val italic: Boolean,
+        val underline: Boolean,
+        val strikeThrough: Boolean
+    )
+
+    private val styleCache = mutableMapOf<TextStyleKey, Paint>()
+
+    fun bodyPaint(bold: Boolean, italic: Boolean, underline: Boolean, strikeThrough: Boolean): Paint {
+        val key = TextStyleKey(bold, italic, underline, strikeThrough)
         return styleCache.getOrPut(key) {
             Paint(baseBodyPaint).apply {
-                typeface = Typeface.create(bodyTypeface, when {
-                    bold && italic -> Typeface.BOLD_ITALIC
-                    bold -> Typeface.BOLD
-                    italic -> Typeface.ITALIC
-                    else -> Typeface.NORMAL
-                })
+                typeface = Typeface.create(
+                    bodyTypeface,
+                    when {
+                        bold && italic -> Typeface.BOLD_ITALIC
+                        bold -> Typeface.BOLD
+                        italic -> Typeface.ITALIC
+                        else -> Typeface.NORMAL
+                    }
+                )
+                isUnderlineText = underline
+                isStrikeThruText = strikeThrough
             }
         }
     }
 
-    fun headerSpace(header: String): Float = if (header.isBlank()) 0f else headerPaint.fontSpacing + 16f
-    fun footerSpace(footer: String): Float = if (footer.isBlank()) 0f else footerPaint.fontSpacing + 16f
+    fun footerSpace(footer: FooterContent?): Float = if (footer == null) 0f else footerPaint.fontSpacing + 16f
 }
 
-private data class TextRunSegment(val text: String, val bold: Boolean, val italic: Boolean)
+private data class TextRunSegment(
+    val text: String,
+    val bold: Boolean,
+    val italic: Boolean,
+    val underline: Boolean,
+    val strikeThrough: Boolean
+)
 
 private sealed interface LineContent {
-    data class Text(val segments: List<TextRunSegment>, val indent: Float) : LineContent
+    data class Text(val segments: List<TextRunSegment>, val indent: Float, val alignment: ParagraphAlignment) : LineContent
     data class Spacer(val spacing: Float) : LineContent
 }
 
-private data class EmbeddedFont(
-    val role: FontTarget,
-    val uri: Uri,
-    val fileName: String,
-    val cssName: String,
-    val mediaType: String
-)
-
-private fun collectCustomFonts(settings: EbookSettings): List<EmbeddedFont> {
-    val fonts = mutableListOf<EmbeddedFont>()
-    fun add(role: FontTarget, option: FontFamilyOption, uriString: String?, prefix: String) {
-        if (option == FontFamilyOption.Custom && !uriString.isNullOrBlank()) {
-            val uri = Uri.parse(uriString)
-            val extension = uri.lastPathSegment?.substringAfterLast('.', "ttf") ?: "ttf"
-            val mediaType = if (extension.equals("otf", true)) "font/otf" else "font/ttf"
-            val cssName = "Astral${prefix.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }}Font"
-            fonts += EmbeddedFont(role, uri, "$prefix.$extension", cssName, mediaType)
-        }
-    }
-    add(FontTarget.Title, settings.fonts.titleFamily, settings.fonts.titleFontUri, "title")
-    add(FontTarget.Heading, settings.fonts.headingFamily, settings.fonts.headingFontUri, "heading")
-    add(FontTarget.Body, settings.fonts.bodyFamily, settings.fonts.bodyFontUri, "body")
-    return fonts
-}
-
-private fun chunkParagraphs(body: DocumentContent, settings: EbookSettings): List<List<FormattedParagraph>> {
-    val usableHeight = settings.pagePreset.heightPx - (settings.margins.top + settings.margins.bottom)
-    val estimatedLineHeight = settings.fonts.bodySize * settings.fonts.lineHeight * 2
-    val approxLines = (usableHeight / estimatedLineHeight).toInt().coerceAtLeast(4)
-    val paragraphsPerPage = (approxLines / 4).coerceAtLeast(1)
-    return body.paragraphs.chunked(paragraphsPerPage)
-}
-
-private fun FormattedParagraph.toHtmlParagraph(): String {
-    val content = runs.joinToString(separator = "") { it.toHtmlSpan() }
-    return if (content.isBlank()) "<p>&nbsp;</p>" else "<p>$content</p>"
-}
-
-private fun TextRun.toHtmlSpan(): String {
-    val escaped = text.escapeHtml()
-    return when {
-        bold && italic -> "<strong><em>$escaped</em></strong>"
-        bold -> "<strong>$escaped</strong>"
-        italic -> "<em>$escaped</em>"
-        else -> escaped
-    }
-}
-
-private fun String.escapeHtml(): String = this
-    .replace("&", "&amp;")
-    .replace("<", "&lt;")
-    .replace(">", "&gt;")
-    .replace("\"", "&quot;")
-    .replace("'", "&#39;")
-
-private val ParagraphAlignment.css: String
-    get() = when (this) {
-        ParagraphAlignment.Left -> "left"
-        ParagraphAlignment.Center -> "center"
-        ParagraphAlignment.Right -> "right"
-        ParagraphAlignment.Justify -> "justify"
-    }
-
-private fun FontFamilyOption.cssValue(role: FontTarget, fonts: List<EmbeddedFont>): String {
-    return when (this) {
-        FontFamilyOption.Serif -> "'Literata', 'Merriweather', serif"
-        FontFamilyOption.SansSerif -> "'Inter', 'Roboto', sans-serif"
-        FontFamilyOption.Custom -> {
-            val cssName = fonts.firstOrNull { it.role == role }?.cssName ?: "Literata"
-            "'$cssName', serif"
-        }
-    }
-}
-
-private fun androidx.compose.ui.graphics.Color.toHex(): String {
-    val int = (this.alpha * 255).toInt() shl 24 or
-        ((this.red * 255).toInt() shl 16) or
-        ((this.green * 255).toInt() shl 8) or
-        (this.blue * 255).toInt()
-    return String.format("#%06X", int and 0xFFFFFF)
-}
+private fun ParagraphAlignment.allowsIndent(): Boolean = this == ParagraphAlignment.Left || this == ParagraphAlignment.Justify
 
 private fun resolveTypeface(context: Context, option: FontFamilyOption, uriString: String?): Typeface {
     if (option == FontFamilyOption.Custom && !uriString.isNullOrBlank()) {

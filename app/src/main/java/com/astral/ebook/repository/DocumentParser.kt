@@ -2,6 +2,7 @@ package com.astral.ebook.repository
 
 import android.content.Context
 import android.net.Uri
+import com.astral.ebook.model.ParagraphAlignment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.xwpf.usermodel.XWPFDocument
@@ -11,18 +12,28 @@ import java.io.InputStreamReader
 /**
  * Utilities to load body content from the Storage Access Framework selections.
  *
- * TXT files are parsed as UTF-8 and support lightweight markup such as *italic* and **bold**.
+ * TXT files are parsed as UTF-8 and support lightweight markup such as *italic*, **bold**,
+ * __underline__, ~~strikethrough~~, and [center]custom alignment[/center].
  * DOCX files rely on Apache POI (see build.gradle) to strip out paragraph text.
  */
 data class DocumentContent(val paragraphs: List<FormattedParagraph>) {
     val rawText: String = paragraphs.joinToString(separator = "\n\n") { it.plainText() }
 }
 
-data class FormattedParagraph(val runs: List<TextRun>) {
+data class FormattedParagraph(
+    val runs: List<TextRun>,
+    val alignment: ParagraphAlignment? = null
+) {
     fun plainText(): String = runs.joinToString(separator = "") { it.text }
 }
 
-data class TextRun(val text: String, val bold: Boolean = false, val italic: Boolean = false)
+data class TextRun(
+    val text: String,
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val strikeThrough: Boolean = false
+)
 
 object DocumentParser {
     suspend fun readBody(context: Context, uri: Uri): DocumentContent = withContext(Dispatchers.IO) {
@@ -58,45 +69,99 @@ object DocumentParser {
 
     private fun parseParagraphMarkup(source: String): FormattedParagraph {
         if (source.isBlank()) return FormattedParagraph(listOf(TextRun("")))
+        var working = source.trim('\n', '\r')
+        var alignment: ParagraphAlignment? = null
+        val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val bracketMatch = bracketAlign.find(working)
+        if (bracketMatch != null) {
+            alignment = bracketMatch.groupValues[1].toParagraphAlignment()
+            working = bracketMatch.groupValues[2].trim()
+        } else {
+            val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            val attrMatch = attrAlign.find(working)
+            if (attrMatch != null) {
+                alignment = attrMatch.groupValues[1].toParagraphAlignment()
+                working = attrMatch.groupValues[2].trim()
+            }
+        }
         val runs = mutableListOf<TextRun>()
         val buffer = StringBuilder()
         var bold = false
         var italic = false
+        var underline = false
+        var strike = false
         var index = 0
         fun flush() {
             if (buffer.isNotEmpty()) {
-                runs += TextRun(buffer.toString(), bold = bold, italic = italic)
+                runs += TextRun(buffer.toString(), bold, italic, underline, strike)
                 buffer.clear()
             }
         }
-        while (index < source.length) {
+        while (index < working.length) {
             when {
-                source.startsWith("***", index) -> {
+                working.startsWith("***", index) -> {
                     flush()
                     bold = !bold
                     italic = !italic
                     index += 3
                 }
-                source.startsWith("**", index) -> {
+                working.startsWith("**", index) -> {
                     flush()
                     bold = !bold
                     index += 2
                 }
-                source[index] == '*' -> {
+                working.startsWith("__", index) -> {
+                    flush()
+                    underline = !underline
+                    index += 2
+                }
+                working.startsWith("~~", index) -> {
+                    flush()
+                    strike = !strike
+                    index += 2
+                }
+                working.regionMatches(index, "[u]", 0, 3, ignoreCase = true) -> {
+                    flush()
+                    underline = true
+                    index += 3
+                }
+                working.regionMatches(index, "[/u]", 0, 4, ignoreCase = true) -> {
+                    flush()
+                    underline = false
+                    index += 4
+                }
+                working.regionMatches(index, "[s]", 0, 3, ignoreCase = true) -> {
+                    flush()
+                    strike = true
+                    index += 3
+                }
+                working.regionMatches(index, "[/s]", 0, 4, ignoreCase = true) -> {
+                    flush()
+                    strike = false
+                    index += 4
+                }
+                working[index] == '*' -> {
                     flush()
                     italic = !italic
                     index++
                 }
                 else -> {
-                    buffer.append(source[index])
+                    buffer.append(working[index])
                     index++
                 }
             }
         }
         flush()
         if (runs.isEmpty()) {
-            runs += TextRun(source)
+            runs += TextRun(working)
         }
-        return FormattedParagraph(runs)
+        return FormattedParagraph(runs, alignment)
     }
+}
+
+private fun String.toParagraphAlignment(): ParagraphAlignment = when (lowercase()) {
+    "left" -> ParagraphAlignment.Left
+    "right" -> ParagraphAlignment.Right
+    "center" -> ParagraphAlignment.Center
+    else -> ParagraphAlignment.Justify
 }
