@@ -37,7 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -248,7 +248,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun MetadataFields(metadata: Metadata, onChange: ((Metadata) -> Metadata) -> Unit) {
+private fun MetadataFields(metadata: Metadata, onChange: (Metadata.() -> Metadata) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
             "Title" to metadata.title,
