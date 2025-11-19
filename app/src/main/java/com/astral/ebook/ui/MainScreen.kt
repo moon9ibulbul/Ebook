@@ -158,6 +158,16 @@ fun MainScreen(
                 }
             }
 
+            SectionTitle("Margins")
+            MarginFields(uiState.settings.margins) { margins ->
+                onSettingsChange { copy(margins = margins) }
+            }
+
+            SectionTitle("Theme colors")
+            ThemeSection(uiState.settings.themeOptions) { updated ->
+                onSettingsChange { copy(themeOptions = updated) }
+            }
+
             SectionTitle("Fonts")
             FontFamilySelector(
                 label = "Title",
@@ -392,12 +402,3 @@ private fun parseColor(input: String): androidx.compose.ui.graphics.Color? {
         null
     }
 }
-            SectionTitle("Margins")
-            MarginFields(uiState.settings.margins) { margins ->
-                onSettingsChange { copy(margins = margins) }
-            }
-
-            SectionTitle("Theme colors")
-            ThemeSection(uiState.settings.themeOptions) { updated ->
-                onSettingsChange { copy(themeOptions = updated) }
-            }

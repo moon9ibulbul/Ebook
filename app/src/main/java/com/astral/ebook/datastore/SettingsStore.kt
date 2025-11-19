@@ -1,10 +1,10 @@
 package com.astral.ebook.datastore
 
 import android.content.Context
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.astral.ebook.model.EbookSettings
@@ -94,7 +94,7 @@ class SettingsStore(private val context: Context) {
     }
 
     suspend fun save(settings: EbookSettings) {
-        context.dataStore.edit { prefs: Preferences ->
+        context.dataStore.edit { prefs: MutablePreferences ->
             prefs[Keys.TITLE] = settings.metadata.title
             prefs[Keys.SUBTITLE] = settings.metadata.subtitle
             prefs[Keys.AUTHOR] = settings.metadata.author

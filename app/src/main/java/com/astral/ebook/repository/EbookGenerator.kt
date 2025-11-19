@@ -65,7 +65,7 @@ object EbookGenerator {
             color = 0xFF000000.toInt()
         }
         val contentWidth = pageWidth - (settings.margins.start + settings.margins.end)
-        val paragraphs = body.split(Regex("\n\s*\n"))
+        val paragraphs = body.split(Regex("""\n\s*\n"""))
         val indentPx = textPaint.textSize * settings.paragraphOptions.firstLineIndentEm
         val paragraphSpacing = settings.paragraphOptions.extraParagraphSpacing *
             context.resources.displayMetrics.density
@@ -131,7 +131,7 @@ object EbookGenerator {
         indentFirstLine: Boolean
     ): List<Pair<String, Float>> {
         if (text.isBlank()) return emptyList()
-        val words = text.trim().split(Regex("\s+"))
+        val words = text.trim().split(Regex("""\s+"""))
         val lines = mutableListOf<Pair<String, Float>>()
         var current = StringBuilder()
         var firstLine = true
