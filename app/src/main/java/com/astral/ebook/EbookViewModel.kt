@@ -10,10 +10,8 @@ import com.astral.ebook.model.Metadata
 import com.astral.ebook.repository.DocumentParser
 import com.astral.ebook.repository.EbookGenerator
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -21,11 +19,15 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsStore = SettingsStore(application)
 
     private val _uiState = MutableStateFlow(EbookUiState())
-    val uiState: StateFlow<EbookUiState> = settingsStore.settings
-        .combine(_uiState) { saved, current ->
-            current.copy(settings = current.settings.merge(saved))
+    val uiState: StateFlow<EbookUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            settingsStore.settings.collect { saved ->
+                _uiState.update { it.copy(settings = saved) }
+            }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EbookUiState())
+    }
 
     fun updateMetadata(block: Metadata.() -> Metadata) {
         _uiState.value = _uiState.value.copy(
@@ -59,7 +61,7 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 _uiState.update { it.copy(isGenerating = true, statusMessage = "") }
                 val latest = _uiState.value
-                val body = DocumentParser.readBodyText(ctx, latest.bodyUri!!)
+                val body = DocumentParser.readBody(ctx, latest.bodyUri!!)
                 val file = EbookGenerator.generate(ctx, latest.settings, body, latest.coverUri)
                 _uiState.update {
                     it.copy(
@@ -84,26 +86,3 @@ data class EbookUiState(
     val statusMessage: String = ""
 )
 
-private fun EbookSettings.merge(other: EbookSettings): EbookSettings {
-    return this.copy(
-        metadata = this.metadata.merge(other.metadata),
-        outputFormat = other.outputFormat,
-        fonts = this.fonts.copy(
-            bodySize = other.fonts.bodySize,
-            titleSize = other.fonts.titleSize,
-            lineHeight = other.fonts.lineHeight
-        ),
-        paragraphOptions = this.paragraphOptions.copy(
-            alignment = other.paragraphOptions.alignment
-        ),
-        footerOptions = other.footerOptions,
-        margins = other.margins,
-        orientation = other.orientation
-    )
-}
-
-private fun Metadata.merge(other: Metadata): Metadata = this.copy(
-    title = other.title.ifBlank { this.title },
-    subtitle = other.subtitle.ifBlank { this.subtitle },
-    author = other.author.ifBlank { this.author }
-)
