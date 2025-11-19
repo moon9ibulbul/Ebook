@@ -3,10 +3,11 @@ package com.astral.ebook.repository
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Paint
-import android.graphics.PdfDocument
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.os.Environment
 import androidx.compose.ui.graphics.toArgb
 import com.astral.ebook.model.EbookSettings
 import com.astral.ebook.model.FontFamilyOption
@@ -44,7 +45,11 @@ object EbookGenerator {
     ): File = withContext(Dispatchers.IO) {
         val ext = if (settings.outputFormat == OutputFormat.EPUB) "epub" else "pdf"
         val filename = "Astral_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.$ext"
-        val outFile = File(context.getExternalFilesDir(null), filename)
+        val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+            ?.takeIf { it.exists() || it.mkdirs() }
+            ?: context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            ?: context.filesDir
+        val outFile = File(documentsDir, filename)
         if (settings.outputFormat == OutputFormat.EPUB) {
             generateEpub(context, outFile, settings, body, coverImage)
         } else {
@@ -168,16 +173,16 @@ object EbookGenerator {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 val bitmap = BitmapFactory.decodeStream(input)
                 bitmap?.let {
-                    val availableWidth = pageInfo.pageWidth - (settings.margins.start + settings.margins.end)
-                    val availableHeight = pageInfo.pageHeight * 0.6f
+                    val availableWidth = (pageInfo.pageWidth - (settings.margins.start + settings.margins.end)).toFloat()
+                    val availableHeight = pageInfo.pageHeight.toFloat() * 0.6f
                     val scale = min(
                         availableWidth / it.width.toFloat(),
                         availableHeight / it.height.toFloat()
                     )
-                    val destWidth = it.width * scale
-                    val destHeight = it.height * scale
-                    val left = (pageInfo.pageWidth - destWidth) / 2f
-                    val top = settings.margins.top
+                    val destWidth = it.width.toFloat() * scale
+                    val destHeight = it.height.toFloat() * scale
+                    val left = (pageInfo.pageWidth.toFloat() - destWidth) / 2f
+                    val top = settings.margins.top.toFloat()
                     canvas.drawBitmap(
                         it,
                         null,
@@ -188,8 +193,8 @@ object EbookGenerator {
                 }
             }
         }
-        val centerX = pageInfo.pageWidth / 2f
-        var y = pageInfo.pageHeight * 0.8f
+        val centerX = pageInfo.pageWidth.toFloat() / 2f
+        var y = pageInfo.pageHeight.toFloat() * 0.8f
         if (settings.metadata.title.isNotBlank()) {
             drawCenteredText(canvas, settings.metadata.title, centerX, y, palette.titlePaint)
             y += palette.titlePaint.fontSpacing
