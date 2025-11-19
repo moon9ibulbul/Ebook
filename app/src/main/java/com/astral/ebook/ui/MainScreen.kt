@@ -1,5 +1,6 @@
 package com.astral.ebook.ui
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,8 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -39,12 +38,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.astral.ebook.EbookUiState
 import com.astral.ebook.model.EbookSettings
 import com.astral.ebook.model.FontFamilyOption
+import com.astral.ebook.model.FontTarget
 import com.astral.ebook.model.FooterOptions
 import com.astral.ebook.model.Margins
 import com.astral.ebook.model.Metadata
@@ -73,6 +75,61 @@ fun MainScreen(
     }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         onPickCover(uri)
+    }
+    val context = LocalContext.current
+    val fontMimeTypes = arrayOf(
+        "font/ttf",
+        "font/otf",
+        "application/x-font-ttf",
+        "application/x-font-otf"
+    )
+
+    fun applyCustomFont(target: FontTarget, uri: Uri?) {
+        val uriString = uri?.toString()
+        onSettingsChange {
+            copy(
+                fonts = when (target) {
+                    FontTarget.Title -> fonts.copy(
+                        titleFamily = if (uri != null) FontFamilyOption.Custom else FontFamilyOption.Serif,
+                        titleFontUri = uriString
+                    )
+                    FontTarget.Heading -> fonts.copy(
+                        headingFamily = if (uri != null) FontFamilyOption.Custom else FontFamilyOption.Serif,
+                        headingFontUri = uriString
+                    )
+                    FontTarget.Body -> fonts.copy(
+                        bodyFamily = if (uri != null) FontFamilyOption.Custom else FontFamilyOption.Serif,
+                        bodyFontUri = uriString
+                    )
+                }
+            )
+        }
+    }
+
+    fun persistFont(uri: Uri) {
+        try {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    val titleFontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            persistFont(uri)
+            applyCustomFont(FontTarget.Title, uri)
+        }
+    }
+    val headingFontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            persistFont(uri)
+            applyCustomFont(FontTarget.Heading, uri)
+        }
+    }
+    val bodyFontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            persistFont(uri)
+            applyCustomFont(FontTarget.Body, uri)
+        }
     }
     val scrollState = rememberScrollState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -172,17 +229,53 @@ fun MainScreen(
             FontFamilySelector(
                 label = "Title",
                 selected = uiState.settings.fonts.titleFamily,
-                onChange = { onSettingsChange { copy(fonts = fonts.copy(titleFamily = it)) } }
+                customFontUri = uiState.settings.fonts.titleFontUri,
+                onChange = { option ->
+                    onSettingsChange {
+                        copy(
+                            fonts = fonts.copy(
+                                titleFamily = option,
+                                titleFontUri = if (option == FontFamilyOption.Custom) fonts.titleFontUri else null
+                            )
+                        )
+                    }
+                },
+                onPickCustomFont = { titleFontPicker.launch(fontMimeTypes) },
+                onClearCustomFont = { applyCustomFont(FontTarget.Title, null) }
             )
             FontFamilySelector(
                 label = "Heading",
                 selected = uiState.settings.fonts.headingFamily,
-                onChange = { onSettingsChange { copy(fonts = fonts.copy(headingFamily = it)) } }
+                customFontUri = uiState.settings.fonts.headingFontUri,
+                onChange = { option ->
+                    onSettingsChange {
+                        copy(
+                            fonts = fonts.copy(
+                                headingFamily = option,
+                                headingFontUri = if (option == FontFamilyOption.Custom) fonts.headingFontUri else null
+                            )
+                        )
+                    }
+                },
+                onPickCustomFont = { headingFontPicker.launch(fontMimeTypes) },
+                onClearCustomFont = { applyCustomFont(FontTarget.Heading, null) }
             )
             FontFamilySelector(
                 label = "Body",
                 selected = uiState.settings.fonts.bodyFamily,
-                onChange = { onSettingsChange { copy(fonts = fonts.copy(bodyFamily = it)) } }
+                customFontUri = uiState.settings.fonts.bodyFontUri,
+                onChange = { option ->
+                    onSettingsChange {
+                        copy(
+                            fonts = fonts.copy(
+                                bodyFamily = option,
+                                bodyFontUri = if (option == FontFamilyOption.Custom) fonts.bodyFontUri else null
+                            )
+                        )
+                    }
+                },
+                onPickCustomFont = { bodyFontPicker.launch(fontMimeTypes) },
+                onClearCustomFont = { applyCustomFont(FontTarget.Body, null) }
             )
             NumberField("Title size (pt)", uiState.settings.fonts.titleSize) {
                 onSettingsChange { copy(fonts = fonts.copy(titleSize = it)) }
@@ -203,7 +296,8 @@ fun MainScreen(
             SectionTitle("Paragraphs")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ParagraphAlignment.values().forEach { align ->
-                    AssistChip(
+                    FilterChip(
+                        selected = uiState.settings.paragraphOptions.alignment == align,
                         onClick = { onSettingsChange { copy(paragraphOptions = paragraphOptions.copy(alignment = align)) } },
                         label = { Text(align.name) }
                     )
@@ -371,8 +465,15 @@ private fun ColorField(label: String, color: androidx.compose.ui.graphics.Color,
 }
 
 @Composable
-private fun FontFamilySelector(label: String, selected: FontFamilyOption, onChange: (FontFamilyOption) -> Unit) {
-    Column {
+private fun FontFamilySelector(
+    label: String,
+    selected: FontFamilyOption,
+    customFontUri: String?,
+    onChange: (FontFamilyOption) -> Unit,
+    onPickCustomFont: () -> Unit,
+    onClearCustomFont: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FontFamilyOption.values().forEach { option ->
@@ -381,6 +482,33 @@ private fun FontFamilySelector(label: String, selected: FontFamilyOption, onChan
                     onClick = { onChange(option) },
                     label = { Text(option.name) }
                 )
+            }
+        }
+        if (selected == FontFamilyOption.Custom) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilledTonalButton(onClick = onPickCustomFont) {
+                    Text(if (customFontUri == null) "Pilih font" else "Ganti font")
+                }
+                if (customFontUri != null) {
+                    val label = try {
+                        Uri.parse(customFontUri).lastPathSegment ?: customFontUri
+                    } catch (_: Throwable) {
+                        customFontUri
+                    }
+                    Text(
+                        text = label,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    TextButton(onClick = onClearCustomFont) {
+                        Text("Hapus")
+                    }
+                }
             }
         }
     }

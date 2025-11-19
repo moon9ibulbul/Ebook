@@ -26,6 +26,9 @@ data class FontOptions(
     val titleFamily: FontFamilyOption = FontFamilyOption.Serif,
     val headingFamily: FontFamilyOption = FontFamilyOption.Serif,
     val bodyFamily: FontFamilyOption = FontFamilyOption.Serif,
+    val titleFontUri: String? = null,
+    val headingFontUri: String? = null,
+    val bodyFontUri: String? = null,
     val titleSize: Float = 42f,
     val subtitleSize: Float = 18f,
     val headingSize: Float = 24f,
@@ -33,7 +36,9 @@ data class FontOptions(
     val lineHeight: Float = 1.5f
 )
 
-enum class FontFamilyOption { Serif, SansSerif }
+enum class FontFamilyOption { Serif, SansSerif, Custom }
+
+enum class FontTarget { Title, Heading, Body }
 
 data class ParagraphOptions(
     val alignment: ParagraphAlignment = ParagraphAlignment.Justify,

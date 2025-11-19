@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.astral.ebook.model.EbookSettings
+import com.astral.ebook.model.FontFamilyOption
 import com.astral.ebook.model.FontOptions
 import com.astral.ebook.model.FooterOptions
 import com.astral.ebook.model.Margins
@@ -28,6 +29,12 @@ class SettingsStore(private val context: Context) {
         val SUBTITLE = stringPreferencesKey("subtitle")
         val AUTHOR = stringPreferencesKey("author")
         val OUTPUT = stringPreferencesKey("output_format")
+        val TITLE_FAMILY = stringPreferencesKey("title_family")
+        val HEADING_FAMILY = stringPreferencesKey("heading_family")
+        val BODY_FAMILY = stringPreferencesKey("body_family")
+        val TITLE_FONT_URI = stringPreferencesKey("title_font_uri")
+        val HEADING_FONT_URI = stringPreferencesKey("heading_font_uri")
+        val BODY_FONT_URI = stringPreferencesKey("body_font_uri")
         val BODY_SIZE = floatPreferencesKey("body_size")
         val TITLE_SIZE = floatPreferencesKey("title_size")
         val LINE_HEIGHT = floatPreferencesKey("line_height")
@@ -50,6 +57,15 @@ class SettingsStore(private val context: Context) {
             author = prefs[Keys.AUTHOR].orEmpty()
         )
         val fonts = FontOptions(
+            titleFamily = prefs[Keys.TITLE_FAMILY]?.let { FontFamilyOption.valueOf(it) }
+                ?: FontFamilyOption.Serif,
+            headingFamily = prefs[Keys.HEADING_FAMILY]?.let { FontFamilyOption.valueOf(it) }
+                ?: FontFamilyOption.Serif,
+            bodyFamily = prefs[Keys.BODY_FAMILY]?.let { FontFamilyOption.valueOf(it) }
+                ?: FontFamilyOption.Serif,
+            titleFontUri = prefs[Keys.TITLE_FONT_URI]?.takeIf { it.isNotBlank() },
+            headingFontUri = prefs[Keys.HEADING_FONT_URI]?.takeIf { it.isNotBlank() },
+            bodyFontUri = prefs[Keys.BODY_FONT_URI]?.takeIf { it.isNotBlank() },
             bodySize = prefs[Keys.BODY_SIZE] ?: 12f,
             titleSize = prefs[Keys.TITLE_SIZE] ?: 42f,
             lineHeight = prefs[Keys.LINE_HEIGHT] ?: 1.5f
@@ -99,6 +115,24 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.SUBTITLE] = settings.metadata.subtitle
             prefs[Keys.AUTHOR] = settings.metadata.author
             prefs[Keys.OUTPUT] = settings.outputFormat.name
+            prefs[Keys.TITLE_FAMILY] = settings.fonts.titleFamily.name
+            prefs[Keys.HEADING_FAMILY] = settings.fonts.headingFamily.name
+            prefs[Keys.BODY_FAMILY] = settings.fonts.bodyFamily.name
+            if (settings.fonts.titleFontUri.isNullOrBlank()) {
+                prefs.remove(Keys.TITLE_FONT_URI)
+            } else {
+                prefs[Keys.TITLE_FONT_URI] = settings.fonts.titleFontUri!!
+            }
+            if (settings.fonts.headingFontUri.isNullOrBlank()) {
+                prefs.remove(Keys.HEADING_FONT_URI)
+            } else {
+                prefs[Keys.HEADING_FONT_URI] = settings.fonts.headingFontUri!!
+            }
+            if (settings.fonts.bodyFontUri.isNullOrBlank()) {
+                prefs.remove(Keys.BODY_FONT_URI)
+            } else {
+                prefs[Keys.BODY_FONT_URI] = settings.fonts.bodyFontUri!!
+            }
             prefs[Keys.BODY_SIZE] = settings.fonts.bodySize
             prefs[Keys.TITLE_SIZE] = settings.fonts.titleSize
             prefs[Keys.LINE_HEIGHT] = settings.fonts.lineHeight
