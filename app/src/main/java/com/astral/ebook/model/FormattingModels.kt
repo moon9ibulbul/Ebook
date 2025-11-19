@@ -16,7 +16,7 @@ data class PagePreset(
 data class FooterOptions(
     val showFooter: Boolean = true,
     val showTitle: Boolean = true,
-    val showSubtitle: Boolean = true,
+    val showChapter: Boolean = true,
     val showPageNumber: Boolean = true,
     val fontSize: Float = 9f
 )
@@ -55,6 +55,7 @@ enum class ParagraphAlignment { Left, Center, Right, Justify }
 data class Metadata(
     val title: String = "",
     val subtitle: String = "",
+    val chapter: String = "",
     val author: String = "",
     val translator: String = "",
     val publisher: String = "",
@@ -65,8 +66,8 @@ data class Metadata(
 
 data class ThemeOptions(
     val useDark: Boolean? = null,
-    val pageBackground: Color = Color(0xFFFAFAF7),
-    val textColor: Color = Color(0xFF111111),
+    val pageBackground: Color = Color(0xFFF8F3EB),
+    val textColor: Color = Color(0xFF231F20),
     val darkTextColor: Color = Color(0xFFE5E5E5)
 )
 
