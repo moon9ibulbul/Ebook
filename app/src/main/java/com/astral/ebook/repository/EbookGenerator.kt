@@ -106,7 +106,7 @@ object EbookGenerator {
                                     it.italic,
                                     it.underline,
                                     it.strikeThrough
-                                ).measureText(it.text)
+                                ).measureText(it.text).toDouble()
                             }.toFloat()
                             val startX = when (line.alignment) {
                                 ParagraphAlignment.Left, ParagraphAlignment.Justify -> margins.start + line.indent
@@ -471,7 +471,7 @@ object EbookGenerator {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return emptyList()
         if (maxWidth <= 0f) return listOf(trimmed)
-        val words = trimmed.split(Regex("\s+"))
+        val words = trimmed.split(Regex("""\s+"""))
         val lines = mutableListOf<String>()
         var current = StringBuilder()
         var currentWidth = 0f
