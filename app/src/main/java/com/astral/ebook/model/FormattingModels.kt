@@ -33,7 +33,7 @@ data class FontOptions(
     val headingFontUri: String? = null,
     val bodyFontUri: String? = null,
     val titleSize: Float = 32f,
-    val subtitleSize: Float = 18f,
+    val chapterSize: Float = 18f,
     val headingSize: Float = 24f,
     val bodySize: Float = 12f,
     val lineHeight: Float = 1.5f

@@ -38,6 +38,8 @@ class SettingsStore(private val context: Context) {
         val BODY_FONT_URI = stringPreferencesKey("body_font_uri")
         val BODY_SIZE = floatPreferencesKey("body_size")
         val TITLE_SIZE = floatPreferencesKey("title_size")
+        val HEADING_SIZE = floatPreferencesKey("heading_size")
+        val CHAPTER_SIZE = floatPreferencesKey("chapter_size")
         val LINE_HEIGHT = floatPreferencesKey("line_height")
         val ALIGNMENT = stringPreferencesKey("alignment")
         val FOOTER = intPreferencesKey("footer_flags")
@@ -72,6 +74,8 @@ class SettingsStore(private val context: Context) {
             bodyFontUri = prefs[Keys.BODY_FONT_URI]?.takeIf { it.isNotBlank() },
             bodySize = prefs[Keys.BODY_SIZE] ?: 12f,
             titleSize = prefs[Keys.TITLE_SIZE] ?: FontOptions().titleSize,
+            headingSize = prefs[Keys.HEADING_SIZE] ?: FontOptions().headingSize,
+            chapterSize = prefs[Keys.CHAPTER_SIZE] ?: FontOptions().chapterSize,
             lineHeight = prefs[Keys.LINE_HEIGHT] ?: 1.5f
         )
         val footerFlags = prefs[Keys.FOOTER] ?: 0b1111
@@ -139,6 +143,8 @@ class SettingsStore(private val context: Context) {
             }
             prefs[Keys.BODY_SIZE] = settings.fonts.bodySize
             prefs[Keys.TITLE_SIZE] = settings.fonts.titleSize
+            prefs[Keys.HEADING_SIZE] = settings.fonts.headingSize
+            prefs[Keys.CHAPTER_SIZE] = settings.fonts.chapterSize
             prefs[Keys.LINE_HEIGHT] = settings.fonts.lineHeight
             prefs[Keys.ALIGNMENT] = settings.paragraphOptions.alignment.name
             prefs[Keys.FOOTER] = (if (settings.footerOptions.showFooter) 0b001 else 0) or
