@@ -28,6 +28,7 @@ class SettingsStore(private val context: Context) {
     private object Keys {
         val TITLE = stringPreferencesKey("title")
         val SUBTITLE = stringPreferencesKey("subtitle")
+        val CHAPTER = stringPreferencesKey("chapter")
         val AUTHOR = stringPreferencesKey("author")
         val TITLE_FAMILY = stringPreferencesKey("title_family")
         val HEADING_FAMILY = stringPreferencesKey("heading_family")
@@ -56,6 +57,7 @@ class SettingsStore(private val context: Context) {
         val metadata = Metadata(
             title = prefs[Keys.TITLE].orEmpty(),
             subtitle = prefs[Keys.SUBTITLE].orEmpty(),
+            chapter = prefs[Keys.CHAPTER].orEmpty(),
             author = prefs[Keys.AUTHOR].orEmpty()
         )
         val fonts = FontOptions(
@@ -76,7 +78,7 @@ class SettingsStore(private val context: Context) {
         val footer = FooterOptions(
             showFooter = footerFlags and 0b001 > 0,
             showTitle = footerFlags and 0b010 > 0,
-            showSubtitle = footerFlags and 0b100 > 0,
+            showChapter = footerFlags and 0b100 > 0,
             showPageNumber = if (footerFlags > 0b111) footerFlags and 0b1000 > 0 else true,
             fontSize = prefs[Keys.FOOTER_SIZE] ?: FooterOptions().fontSize
         )
@@ -115,6 +117,7 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { prefs: MutablePreferences ->
             prefs[Keys.TITLE] = settings.metadata.title
             prefs[Keys.SUBTITLE] = settings.metadata.subtitle
+            prefs[Keys.CHAPTER] = settings.metadata.chapter
             prefs[Keys.AUTHOR] = settings.metadata.author
             prefs[Keys.TITLE_FAMILY] = settings.fonts.titleFamily.name
             prefs[Keys.HEADING_FAMILY] = settings.fonts.headingFamily.name
@@ -140,7 +143,7 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.ALIGNMENT] = settings.paragraphOptions.alignment.name
             prefs[Keys.FOOTER] = (if (settings.footerOptions.showFooter) 0b001 else 0) or
                 (if (settings.footerOptions.showTitle) 0b010 else 0) or
-                (if (settings.footerOptions.showSubtitle) 0b100 else 0) or
+                (if (settings.footerOptions.showChapter) 0b100 else 0) or
                 (if (settings.footerOptions.showPageNumber) 0b1000 else 0)
             prefs[Keys.FOOTER_SIZE] = settings.footerOptions.fontSize
             prefs[Keys.ORIENTATION] = settings.orientation.name

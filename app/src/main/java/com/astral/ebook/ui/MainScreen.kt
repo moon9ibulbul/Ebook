@@ -348,6 +348,7 @@ private fun MetadataFields(metadata: Metadata, onChange: (Metadata.() -> Metadat
         listOf(
             "Title" to metadata.title,
             "Subtitle" to metadata.subtitle,
+            "Chapter" to metadata.chapter,
             "Author" to metadata.author,
             "Translator" to metadata.translator,
             "Publisher" to metadata.publisher,
@@ -363,6 +364,7 @@ private fun MetadataFields(metadata: Metadata, onChange: (Metadata.() -> Metadat
                         when (label) {
                             "Title" -> copy(title = newValue)
                             "Subtitle" -> copy(subtitle = newValue)
+                            "Chapter" -> copy(chapter = newValue)
                             "Author" -> copy(author = newValue)
                             "Translator" -> copy(translator = newValue)
                             "Publisher" -> copy(publisher = newValue)
@@ -391,8 +393,8 @@ private fun FooterControls(footer: FooterOptions, onChange: (FooterOptions) -> U
                 Switch(checked = footer.showTitle, onCheckedChange = { onChange(footer.copy(showTitle = it)) })
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Subtitle", modifier = Modifier.weight(1f))
-                Switch(checked = footer.showSubtitle, onCheckedChange = { onChange(footer.copy(showSubtitle = it)) })
+                Text("Chapter", modifier = Modifier.weight(1f))
+                Switch(checked = footer.showChapter, onCheckedChange = { onChange(footer.copy(showChapter = it)) })
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Page number", modifier = Modifier.weight(1f))
@@ -526,11 +528,9 @@ private fun androidx.compose.ui.graphics.Color.toHexString(): String {
 }
 
 private fun parseColor(input: String): androidx.compose.ui.graphics.Color? {
-    return try {
-        val clean = input.removePrefix("#")
-        val color = clean.toLong(16).toInt()
-        androidx.compose.ui.graphics.Color(color or (0xFF shl 24))
-    } catch (t: Throwable) {
-        null
-    }
+    val hexRegex = Regex("^#?[0-9a-fA-F]{6}$")
+    if (!hexRegex.matches(input)) return null
+    val clean = input.removePrefix("#")
+    val color = clean.toLong(16).toInt()
+    return androidx.compose.ui.graphics.Color(color or (0xFF shl 24))
 }

@@ -230,11 +230,11 @@ object EbookGenerator {
         val contentWidth = pageInfo.pageWidth.toFloat() - (settings.margins.start + settings.margins.end)
         val centerX = pageInfo.pageWidth.toFloat() / 2f
         val titleLines = wrapText(settings.metadata.title, palette.titlePaint, contentWidth)
-        val subtitleLines = wrapText(settings.metadata.subtitle, palette.subtitlePaint, contentWidth)
+        val chapterLines = wrapText(settings.metadata.chapter, palette.subtitlePaint, contentWidth)
         val titleHeight = titleLines.size * palette.titlePaint.fontSpacing
-        val subtitleHeight = subtitleLines.size * palette.subtitlePaint.fontSpacing
-        val spacing = if (titleLines.isNotEmpty() && subtitleLines.isNotEmpty()) palette.subtitlePaint.fontSpacing else 0f
-        var y = (pageInfo.pageHeight.toFloat() - (titleHeight + subtitleHeight + spacing)) / 2f
+        val chapterHeight = chapterLines.size * palette.subtitlePaint.fontSpacing
+        val spacing = if (titleLines.isNotEmpty() && chapterLines.isNotEmpty()) palette.subtitlePaint.fontSpacing else 0f
+        var y = (pageInfo.pageHeight.toFloat() - (titleHeight + chapterHeight + spacing)) / 2f
         if (titleLines.isNotEmpty()) {
             var baseline = y + palette.titlePaint.textSize
             titleLines.forEach { line ->
@@ -243,9 +243,9 @@ object EbookGenerator {
             }
             y += titleHeight + spacing
         }
-        if (subtitleLines.isNotEmpty()) {
+        if (chapterLines.isNotEmpty()) {
             var baseline = y + palette.subtitlePaint.textSize
-            subtitleLines.forEach { line ->
+            chapterLines.forEach { line ->
                 drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.subtitlePaint)
                 baseline += palette.subtitlePaint.fontSpacing
             }
@@ -260,31 +260,23 @@ object EbookGenerator {
         pageInfo: PdfDocument.PageInfo,
         contentWidth: Float
     ): Float {
-        val title = settings.metadata.title
         val subtitle = settings.metadata.subtitle
-        if (title.isBlank() && subtitle.isBlank()) return 0f
+        val chapter = settings.metadata.chapter
+        val headingText = when {
+            chapter.isBlank() && subtitle.isBlank() -> null
+            chapter.isBlank() -> subtitle
+            subtitle.isBlank() -> chapter
+            else -> "$chapter : $subtitle"
+        } ?: return 0f
         val centerX = pageInfo.pageWidth.toFloat() / 2f
-        val titleLines = wrapText(title, palette.titlePaint, contentWidth)
-        val subtitleLines = wrapText(subtitle, palette.subtitlePaint, contentWidth)
-        var consumed = 0f
-        if (titleLines.isNotEmpty()) {
-            var baseline = settings.margins.top + palette.titlePaint.textSize
-            titleLines.forEach { line ->
-                drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.titlePaint)
-                baseline += palette.titlePaint.fontSpacing
-            }
-            consumed = baseline - settings.margins.top
+        val headingLines = wrapText(headingText, palette.titlePaint, contentWidth)
+        if (headingLines.isEmpty()) return 0f
+        var baseline = settings.margins.top + palette.titlePaint.textSize
+        headingLines.forEach { line ->
+            drawCenteredText(canvas, line, centerX, baseline, palette.titlePaint)
+            baseline += palette.titlePaint.fontSpacing
         }
-        if (subtitleLines.isNotEmpty()) {
-            val spacing = if (titleLines.isNotEmpty()) palette.subtitlePaint.fontSpacing * 0.5f else 0f
-            var baseline = settings.margins.top + consumed + spacing + palette.subtitlePaint.textSize
-            subtitleLines.forEach { line ->
-                drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.subtitlePaint)
-                baseline += palette.subtitlePaint.fontSpacing
-            }
-            consumed = baseline - settings.margins.top
-        }
-        return consumed + palette.headingGap
+        return (baseline - settings.margins.top) + palette.headingGap
     }
 
     private fun drawMetadataPage(
@@ -319,15 +311,6 @@ object EbookGenerator {
                 baseline += palette.titlePaint.fontSpacing
             }
             y += titleLines.size * palette.titlePaint.fontSpacing
-        }
-        val subtitleLines = wrapText(meta.subtitle, palette.subtitlePaint, contentWidth)
-        if (subtitleLines.isNotEmpty()) {
-            var baseline = y + palette.subtitlePaint.textSize
-            subtitleLines.forEach { line ->
-                drawCenteredText(canvas, line, centerX.toFloat(), baseline, palette.subtitlePaint)
-                baseline += palette.subtitlePaint.fontSpacing
-            }
-            y += subtitleLines.size * palette.subtitlePaint.fontSpacing
         }
         y += palette.baseBodyPaint.fontSpacing
         val labelMaxWidth = entries.maxOf { palette.metadataLabelPaint.measureText(it.first) }
@@ -516,8 +499,8 @@ object EbookGenerator {
         if (settings.footerOptions.showTitle && settings.metadata.title.isNotBlank()) {
             leftParts += settings.metadata.title
         }
-        if (settings.footerOptions.showSubtitle && settings.metadata.subtitle.isNotBlank()) {
-            leftParts += settings.metadata.subtitle
+        if (settings.footerOptions.showChapter && settings.metadata.chapter.isNotBlank()) {
+            leftParts += settings.metadata.chapter
         }
         val right = if (settings.footerOptions.showPageNumber) pageNumber.toString() else ""
         if (leftParts.isEmpty() && right.isBlank()) return null
