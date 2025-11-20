@@ -281,8 +281,8 @@ fun MainScreen(
             NumberField("Title size (pt)", uiState.settings.fonts.titleSize) {
                 onSettingsChange { copy(fonts = fonts.copy(titleSize = it)) }
             }
-            NumberField("Subtitle size (pt)", uiState.settings.fonts.subtitleSize) {
-                onSettingsChange { copy(fonts = fonts.copy(subtitleSize = it)) }
+            NumberField("Chapter size (pt)", uiState.settings.fonts.chapterSize) {
+                onSettingsChange { copy(fonts = fonts.copy(chapterSize = it)) }
             }
             NumberField("Heading size (pt)", uiState.settings.fonts.headingSize) {
                 onSettingsChange { copy(fonts = fonts.copy(headingSize = it)) }

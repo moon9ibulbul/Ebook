@@ -13,7 +13,7 @@ import java.io.InputStreamReader
  * Utilities to load body content from the Storage Access Framework selections.
  *
  * TXT files are parsed as UTF-8 and support lightweight markup such as *italic*, **bold**,
- * __underline__, ~~strikethrough~~, and [center]custom alignment[/center].
+ * _underline_, ~strikethrough~, and [center]custom alignment[/center].
  * DOCX files rely on Apache POI (see build.gradle) to strip out paragraph text.
  */
 data class DocumentContent(val paragraphs: List<FormattedParagraph>) {
@@ -98,6 +98,14 @@ object DocumentParser {
             }
         }
         while (index < working.length) {
+            if (working[index] == '\\') {
+                val escaped = working.getOrNull(index + 1)
+                if (escaped != null && escaped in setOf('*', '_', '~', '[', '\\')) {
+                    buffer.append(escaped)
+                    index += 2
+                    continue
+                }
+            }
             when {
                 working.startsWith("***", index) -> {
                     flush()
@@ -139,6 +147,16 @@ object DocumentParser {
                     flush()
                     strike = false
                     index += 4
+                }
+                working[index] == '_' -> {
+                    flush()
+                    underline = !underline
+                    index++
+                }
+                working[index] == '~' -> {
+                    flush()
+                    strike = !strike
+                    index++
                 }
                 working[index] == '*' -> {
                     flush()
