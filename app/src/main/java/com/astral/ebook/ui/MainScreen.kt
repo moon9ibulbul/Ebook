@@ -63,6 +63,8 @@ fun MainScreen(
     onSettingsChange: (EbookSettings.() -> EbookSettings) -> Unit,
     onPickBody: (Uri?) -> Unit,
     onPickCover: (Uri?) -> Unit,
+    onVisualEditor: () -> Unit,
+    onPreview: () -> Unit,
     onGenerate: () -> Unit,
     onSaveDefaults: () -> Unit
 ) {
@@ -163,6 +165,12 @@ fun MainScreen(
                 }) {
                     Text(if (uiState.coverUri == null) "Cover image" else "Change cover")
                 }
+            }
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onVisualEditor
+            ) {
+                Text("Visual Editor")
             }
 
             SectionTitle("Metadata")
@@ -318,6 +326,14 @@ fun MainScreen(
 
             if (uiState.isGenerating) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !uiState.isGenerating,
+                onClick = onPreview
+            ) {
+                Text("Preview")
             }
 
             Button(
