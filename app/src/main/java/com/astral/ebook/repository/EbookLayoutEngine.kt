@@ -221,7 +221,9 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
         indentFirstLine: Boolean,
         alignment: ParagraphAlignment
     ): List<LineContent.Text> {
-        if (paragraph.runs.all { it.text.isBlank() }) return emptyList()
+        if (paragraph.runs.all { it.text.isBlank() }) {
+            return listOf(LineContent.Text(listOf(TextRunSegment("", false, false, false, false)), 0f, alignment))
+        }
         val lines = mutableListOf<LineContent.Text>()
         val shouldIndent = indentFirstLine && alignment.allowsIndent()
         var isFirstLine = true

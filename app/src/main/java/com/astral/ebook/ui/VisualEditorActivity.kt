@@ -275,19 +275,19 @@ class MarkupVisualTransformation : VisualTransformation {
                 origToTrans[origIdx] = pTransEnd
             }
 
-            if (alignment != null) {
-                builder.addStyle(
-                    ParagraphStyle(textAlign = alignment),
-                    pTransStart,
-                    pTransEnd
-                )
-            }
-
             if (pEnd < N) {
                 val transIdx = builder.length
                 builder.append('\n')
                 transToOrigList.add(pEnd)
                 origToTrans[pEnd] = transIdx
+            }
+
+            if (alignment != null && pTransStart < builder.length) {
+                builder.addStyle(
+                    ParagraphStyle(textAlign = alignment),
+                    pTransStart,
+                    builder.length
+                )
             }
 
             currentParagraphStart = pEnd + 1

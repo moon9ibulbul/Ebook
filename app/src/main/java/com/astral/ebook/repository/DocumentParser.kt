@@ -44,11 +44,26 @@ object DocumentParser {
         }
     }
 
+    suspend fun readRawText(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
+        val type = context.contentResolver.getType(uri) ?: ""
+        if (type.contains("word") || uri.toString().endsWith(".docx", true)) {
+            readBody(context, uri).rawText
+        } else {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    BufferedReader(InputStreamReader(input)).readText()
+                } ?: ""
+            } catch (_: Exception) {
+                ""
+            }
+        }
+    }
+
     private fun parseTxt(context: Context, uri: Uri): DocumentContent {
         context.contentResolver.openInputStream(uri)?.use { input ->
             val text = BufferedReader(InputStreamReader(input)).readText()
-            val paragraphs = text.split(Regex("""\r?\n\s*\r?\n"""))
-                .map { parseParagraphMarkup(it.trim('\n', '\r')) }
+            val paragraphs = text.split(Regex("""\r?\n"""))
+                .map { parseParagraphMarkup(it) }
             return DocumentContent(paragraphs)
         }
         error("Unable to open text file")
@@ -59,7 +74,15 @@ object DocumentParser {
             XWPFDocument(input).use { doc ->
                 val paragraphs = doc.paragraphs.map { para ->
                     val text = para.text ?: ""
-                    FormattedParagraph(listOf(TextRun(text.trim())))
+                    val align = when (para.alignment) {
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER -> ParagraphAlignment.Center
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.RIGHT -> ParagraphAlignment.Right
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.LEFT -> ParagraphAlignment.Left
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.BOTH,
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.DISTRIBUTE -> ParagraphAlignment.Justify
+                        else -> null
+                    }
+                    FormattedParagraph(listOf(TextRun(text.trim())), align)
                 }
                 return DocumentContent(paragraphs)
             }
