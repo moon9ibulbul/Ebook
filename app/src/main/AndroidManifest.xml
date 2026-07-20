@@ -13,5 +13,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name="com.astral.ebook.ui.VisualEditorActivity"
+            android:label="Visual Editor"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name="com.astral.ebook.ui.PreviewActivity"
+            android:label="Preview" />
     </application>
 </manifest>
