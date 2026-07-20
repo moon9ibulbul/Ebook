@@ -275,19 +275,21 @@ class MarkupVisualTransformation : VisualTransformation {
                 origToTrans[origIdx] = pTransEnd
             }
 
-            if (alignment != null) {
-                builder.addStyle(
-                    ParagraphStyle(textAlign = alignment),
-                    pTransStart,
-                    pTransEnd
-                )
-            }
-
             if (pEnd < N) {
                 val transIdx = builder.length
                 builder.append('\n')
                 transToOrigList.add(pEnd)
                 origToTrans[pEnd] = transIdx
+            }
+
+            val pTransEndForPara = builder.length
+
+            if (alignment != null) {
+                builder.addStyle(
+                    ParagraphStyle(textAlign = alignment),
+                    pTransStart,
+                    pTransEndForPara
+                )
             }
 
             currentParagraphStart = pEnd + 1
@@ -388,12 +390,53 @@ fun VisualEditorScreen(
                     val text = textFieldValue.text
                     val tag = align.name.lowercase()
 
-                    // Check if it's already aligned
-                    val prefix = "[$tag]"
-                    val suffix = "[/$tag]"
+                    // 1. Find paragraph boundaries
+                    var paraStart = start
+                    while (paraStart > 0 && text[paraStart - 1] != '\n') {
+                        paraStart--
+                    }
+                    var paraEnd = end
+                    while (paraEnd < text.length && text[paraEnd] != '\n') {
+                        paraEnd++
+                    }
 
-                    val newText = text.substring(0, start) + prefix + text.substring(start, end) + suffix + text.substring(end)
-                    textFieldValue = TextFieldValue(newText, TextRange(start + prefix.length, end + prefix.length))
+                    val paraText = text.substring(paraStart, paraEnd)
+
+                    // 2. Strip existing alignment tags
+                    val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                    val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+
+                    var workingPara = paraText.trim()
+                    var existingAlign: String? = null
+
+                    var matched = true
+                    while (matched) {
+                        val bracketMatch = bracketAlign.find(workingPara)
+                        if (bracketMatch != null) {
+                            existingAlign = bracketMatch.groupValues[1].lowercase()
+                            workingPara = bracketMatch.groupValues[2].trim()
+                            continue
+                        }
+                        val attrMatch = attrAlign.find(workingPara)
+                        if (attrMatch != null) {
+                            existingAlign = attrMatch.groupValues[1].lowercase()
+                            workingPara = attrMatch.groupValues[2].trim()
+                            continue
+                        }
+                        matched = false
+                    }
+
+                    // 3. Apply new alignment or toggle if same alignment is clicked
+                    val newParaText = if (existingAlign == tag) {
+                        workingPara
+                    } else {
+                        "[$tag]$workingPara[/$tag]"
+                    }
+
+                    // 4. Construct the new text and set the selection
+                    val newText = text.substring(0, paraStart) + newParaText + text.substring(paraEnd)
+                    val newSelection = TextRange(paraStart, paraStart + newParaText.length)
+                    textFieldValue = TextFieldValue(newText, newSelection)
                 }
             )
 

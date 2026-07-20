@@ -75,7 +75,16 @@ object DocumentParser {
             XWPFDocument(input).use { doc ->
                 val paragraphs = doc.paragraphs.map { para ->
                     val text = para.text ?: ""
-                    FormattedParagraph(listOf(TextRun(text.trim())))
+                    val poiAlign = para.alignment
+                    val alignment = when (poiAlign) {
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER -> ParagraphAlignment.Center
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.RIGHT -> ParagraphAlignment.Right
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.LEFT -> ParagraphAlignment.Left
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.BOTH -> ParagraphAlignment.Justify
+                        org.apache.poi.xwpf.usermodel.ParagraphAlignment.DISTRIBUTE -> ParagraphAlignment.Justify
+                        else -> null
+                    }
+                    FormattedParagraph(listOf(TextRun(text.trim())), alignment)
                 }
                 return DocumentContent(paragraphs)
             }
@@ -83,7 +92,7 @@ object DocumentParser {
         error("Unable to open docx file")
     }
 
-    private fun parseParagraphMarkup(source: String): FormattedParagraph {
+    internal fun parseParagraphMarkup(source: String): FormattedParagraph {
         if (source.isBlank()) return FormattedParagraph(listOf(TextRun("")))
         var working = source.trim('\n', '\r')
         var alignment: ParagraphAlignment? = null
