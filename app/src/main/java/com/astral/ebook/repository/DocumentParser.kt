@@ -44,10 +44,26 @@ object DocumentParser {
         }
     }
 
+    suspend fun readRawText(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
+        val type = context.contentResolver.getType(uri) ?: ""
+        val isDocx = type.contains("word") || uri.toString().endsWith(".docx", true)
+        if (isDocx) {
+            readBody(context, uri).rawText
+        } else {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    BufferedReader(InputStreamReader(input)).readText()
+                } ?: ""
+            } catch (e: Exception) {
+                ""
+            }
+        }
+    }
+
     private fun parseTxt(context: Context, uri: Uri): DocumentContent {
         context.contentResolver.openInputStream(uri)?.use { input ->
             val text = BufferedReader(InputStreamReader(input)).readText()
-            val paragraphs = text.split(Regex("""\r?\n\s*\r?\n"""))
+            val paragraphs = text.split(Regex("""\r?\n"""))
                 .map { parseParagraphMarkup(it.trim('\n', '\r')) }
             return DocumentContent(paragraphs)
         }
