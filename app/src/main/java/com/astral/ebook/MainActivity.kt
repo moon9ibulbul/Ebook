@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
                             val currentContent = state.bodyUri?.let { uri ->
                                 try {
                                     withContext(Dispatchers.IO) {
-                                        DocumentParser.readBody(this@MainActivity, uri).rawText
+                                        DocumentParser.readRawText(this@MainActivity, uri)
                                     }
                                 } catch (_: Exception) { "" }
                             } ?: ""
