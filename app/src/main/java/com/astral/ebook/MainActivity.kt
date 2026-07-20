@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
                             } ?: ""
                             val intent = Intent(this@MainActivity, VisualEditorActivity::class.java).apply {
                                 putExtra("content", currentContent)
+                                putExtra("settings", state.settings.toBundle())
                             }
                             visualEditorLauncher.launch(intent)
                         }
