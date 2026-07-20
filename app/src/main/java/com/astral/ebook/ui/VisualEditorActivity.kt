@@ -39,11 +39,279 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.ParagraphStyle
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.astral.ebook.model.ParagraphAlignment
 import com.astral.ebook.ui.theme.AstralEbookTheme
+
+class MarkupVisualTransformation : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val original = text.text
+        val N = original.length
+        val builder = AnnotatedString.Builder()
+        val origToTrans = IntArray(N + 1)
+        val transToOrigList = mutableListOf<Int>()
+
+        val paragraphs = original.split('\n')
+        var currentParagraphStart = 0
+
+        for (pText in paragraphs) {
+            val pEnd = currentParagraphStart + pText.length
+            var working = pText
+            var alignment: TextAlign? = null
+            var tagStartLen = 0
+            var tagEndLen = 0
+
+            val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            val bracketMatch = bracketAlign.find(working)
+            if (bracketMatch != null) {
+                val alignStr = bracketMatch.groupValues[1].lowercase()
+                alignment = when (alignStr) {
+                    "left" -> TextAlign.Left
+                    "right" -> TextAlign.Right
+                    "center" -> TextAlign.Center
+                    "justify" -> TextAlign.Justify
+                    else -> null
+                }
+                tagStartLen = alignStr.length + 2
+                tagEndLen = alignStr.length + 3
+                working = bracketMatch.groupValues[2]
+            } else {
+                val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                val attrMatch = attrAlign.find(working)
+                if (attrMatch != null) {
+                    val alignStr = attrMatch.groupValues[1].lowercase()
+                    alignment = when (alignStr) {
+                        "left" -> TextAlign.Left
+                        "right" -> TextAlign.Right
+                        "center" -> TextAlign.Center
+                        "justify" -> TextAlign.Justify
+                        else -> null
+                    }
+                    tagStartLen = alignStr.length + 8
+                    tagEndLen = 8
+                    working = attrMatch.groupValues[2]
+                }
+            }
+
+            val pTransStart = builder.length
+
+            for (origIdx in currentParagraphStart until (currentParagraphStart + tagStartLen)) {
+                origToTrans[origIdx] = pTransStart
+            }
+
+            var boldStart: Int? = null
+            var italicStart: Int? = null
+            var underlineStart: Int? = null
+            var strikeStart: Int? = null
+
+            fun toggleBold(transIdx: Int) {
+                if (boldStart == null) {
+                    boldStart = transIdx
+                } else {
+                    builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), boldStart!!, transIdx)
+                    boldStart = null
+                }
+            }
+
+            fun toggleItalic(transIdx: Int) {
+                if (italicStart == null) {
+                    italicStart = transIdx
+                } else {
+                    builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), italicStart!!, transIdx)
+                    italicStart = null
+                }
+            }
+
+            fun toggleUnderline(transIdx: Int) {
+                if (underlineStart == null) {
+                    underlineStart = transIdx
+                } else {
+                    builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), underlineStart!!, transIdx)
+                    underlineStart = null
+                }
+            }
+
+            fun toggleStrike(transIdx: Int) {
+                if (strikeStart == null) {
+                    strikeStart = transIdx
+                } else {
+                    builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), strikeStart!!, transIdx)
+                    strikeStart = null
+                }
+            }
+
+            var i = 0
+            while (i < working.length) {
+                val origIdx = currentParagraphStart + tagStartLen + i
+
+                if (working[i] == '\\') {
+                    val escaped = working.getOrNull(i + 1)
+                    if (escaped != null && escaped in setOf('*', '_', '~', '[', '\\')) {
+                        origToTrans[origIdx] = builder.length
+                        val transIdx = builder.length
+                        builder.append(escaped)
+                        transToOrigList.add(origIdx + 1)
+                        origToTrans[origIdx + 1] = transIdx
+                        i += 2
+                        continue
+                    }
+                }
+
+                when {
+                    working.startsWith("***", i) -> {
+                        origToTrans[origIdx] = builder.length
+                        origToTrans[origIdx + 1] = builder.length
+                        origToTrans[origIdx + 2] = builder.length
+                        toggleBold(builder.length)
+                        toggleItalic(builder.length)
+                        i += 3
+                    }
+                    working.startsWith("**", i) -> {
+                        origToTrans[origIdx] = builder.length
+                        origToTrans[origIdx + 1] = builder.length
+                        toggleBold(builder.length)
+                        i += 2
+                    }
+                    working.startsWith("__", i) -> {
+                        origToTrans[origIdx] = builder.length
+                        origToTrans[origIdx + 1] = builder.length
+                        toggleUnderline(builder.length)
+                        i += 2
+                    }
+                    working.startsWith("~~", i) -> {
+                        origToTrans[origIdx] = builder.length
+                        origToTrans[origIdx + 1] = builder.length
+                        toggleStrike(builder.length)
+                        i += 2
+                    }
+                    working.regionMatches(i, "[u]", 0, 3, ignoreCase = true) -> {
+                        origToTrans[origIdx] = builder.length
+                        origToTrans[origIdx + 1] = builder.length
+                        origToTrans[origIdx + 2] = builder.length
+                        if (underlineStart == null) underlineStart = builder.length
+                        i += 3
+                    }
+                    working.regionMatches(i, "[/u]", 0, 4, ignoreCase = true) -> {
+                        origToTrans[origIdx] = builder.length
+                        origToTrans[origIdx + 1] = builder.length
+                        origToTrans[origIdx + 2] = builder.length
+                        origToTrans[origIdx + 3] = builder.length
+                        if (underlineStart != null) {
+                            builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), underlineStart!!, builder.length)
+                            underlineStart = null
+                        }
+                        i += 4
+                    }
+                    working.regionMatches(i, "[s]", 0, 3, ignoreCase = true) -> {
+                        origToTrans[origIdx] = builder.length
+                        origToTrans[origIdx + 1] = builder.length
+                        origToTrans[origIdx + 2] = builder.length
+                        if (strikeStart == null) strikeStart = builder.length
+                        i += 3
+                    }
+                    working.regionMatches(i, "[/s]", 0, 4, ignoreCase = true) -> {
+                        origToTrans[origIdx] = builder.length
+                        origToTrans[origIdx + 1] = builder.length
+                        origToTrans[origIdx + 2] = builder.length
+                        origToTrans[origIdx + 3] = builder.length
+                        if (strikeStart != null) {
+                            builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), strikeStart!!, builder.length)
+                            strikeStart = null
+                        }
+                        i += 4
+                    }
+                    working[i] == '_' -> {
+                        origToTrans[origIdx] = builder.length
+                        toggleUnderline(builder.length)
+                        i++
+                    }
+                    working[i] == '~' -> {
+                        origToTrans[origIdx] = builder.length
+                        toggleStrike(builder.length)
+                        i++
+                    }
+                    working[i] == '*' -> {
+                        origToTrans[origIdx] = builder.length
+                        toggleItalic(builder.length)
+                        i++
+                    }
+                    else -> {
+                        val transIdx = builder.length
+                        builder.append(working[i])
+                        transToOrigList.add(origIdx)
+                        origToTrans[origIdx] = transIdx
+                        i++
+                    }
+                }
+            }
+
+            val pTransEnd = builder.length
+            if (boldStart != null) {
+                builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), boldStart!!, pTransEnd)
+            }
+            if (italicStart != null) {
+                builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), italicStart!!, pTransEnd)
+            }
+            if (underlineStart != null) {
+                builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), underlineStart!!, pTransEnd)
+            }
+            if (strikeStart != null) {
+                builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), strikeStart!!, pTransEnd)
+            }
+
+            for (origIdx in (pEnd - tagEndLen) until pEnd) {
+                origToTrans[origIdx] = pTransEnd
+            }
+
+            if (alignment != null) {
+                builder.addStyle(
+                    ParagraphStyle(textAlign = alignment),
+                    pTransStart,
+                    pTransEnd
+                )
+            }
+
+            if (pEnd < N) {
+                val transIdx = builder.length
+                builder.append('\n')
+                transToOrigList.add(pEnd)
+                origToTrans[pEnd] = transIdx
+            }
+
+            currentParagraphStart = pEnd + 1
+        }
+
+        origToTrans[N] = builder.length
+        transToOrigList.add(N)
+        val transToOrigArray = transToOrigList.toIntArray()
+
+        val offsetMapping = object : OffsetMapping {
+            override fun originalToTransformed(offset: Int): Int {
+                val clamped = offset.coerceIn(0, N)
+                return origToTrans[clamped]
+            }
+
+            override fun transformedToOriginal(offset: Int): Int {
+                val clamped = offset.coerceIn(0, builder.length)
+                return transToOrigArray[clamped]
+            }
+        }
+
+        return TransformedText(builder.toAnnotatedString(), offsetMapping)
+    }
+}
 
 class VisualEditorActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -135,6 +403,7 @@ fun VisualEditorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
+                visualTransformation = MarkupVisualTransformation(),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,

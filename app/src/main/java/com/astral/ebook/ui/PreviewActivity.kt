@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.astral.ebook.datastore.SettingsStore
 import com.astral.ebook.model.EbookSettings
 import com.astral.ebook.model.Orientation
+import com.astral.ebook.model.toEbookSettings
 import com.astral.ebook.repository.DocumentParser
 import com.astral.ebook.repository.EbookLayoutEngine
 import com.astral.ebook.repository.PageContent
@@ -65,7 +66,8 @@ class PreviewActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 withContext(Dispatchers.IO) {
                     val store = SettingsStore(context)
-                    val savedSettings = store.settings.first()
+                    val intentSettingsBundle = intent.getBundleExtra("settings")
+                    val savedSettings = intentSettingsBundle?.toEbookSettings() ?: store.settings.first()
                     settings = savedSettings
 
                     if (bodyUri != null) {
@@ -138,7 +140,7 @@ fun PreviewPager(settings: EbookSettings, pages: List<PageContent>, coverUri: Ur
                         .padding(16.dp)
                         .aspectRatio(pageWidth.toFloat() / pageHeight.toFloat())
                         .fillMaxSize()
-                        .background(Color.White)
+                        .background(settings.themeOptions.pageBackground)
                 ) {
                     val scale = size.width / pageWidth.toFloat()
                     drawIntoCanvas { canvas ->
