@@ -68,11 +68,6 @@ fun MainScreen(
     onGenerate: () -> Unit,
     onSaveDefaults: () -> Unit
 ) {
-    val bodyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            onPickBody(uri)
-        }
-    }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         onPickCover(uri)
     }
@@ -154,23 +149,24 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             SectionTitle("Source Files")
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalButton(onClick = {
-                    bodyPicker.launch(arrayOf("text/plain", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                }) {
-                    Text(if (uiState.bodyUri == null) "Pick text / docx" else "Change body file")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FilledTonalButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onVisualEditor
+                ) {
+                    Text("Visual Editor")
                 }
-                FilledTonalButton(onClick = {
-                    coverPicker.launch(arrayOf("image/*"))
-                }) {
+                FilledTonalButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        coverPicker.launch(arrayOf("image/*"))
+                    }
+                ) {
                     Text(if (uiState.coverUri == null) "Cover image" else "Change cover")
                 }
-            }
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onVisualEditor
-            ) {
-                Text("Visual Editor")
             }
 
             SectionTitle("Metadata")

@@ -30,6 +30,11 @@ class SettingsStore(private val context: Context) {
         val SUBTITLE = stringPreferencesKey("subtitle")
         val CHAPTER = stringPreferencesKey("chapter")
         val AUTHOR = stringPreferencesKey("author")
+        val TRANSLATOR = stringPreferencesKey("translator")
+        val PUBLISHER = stringPreferencesKey("publisher")
+        val YEAR = stringPreferencesKey("year")
+        val NOTES = stringPreferencesKey("notes")
+        val LANGUAGE = stringPreferencesKey("language")
         val TITLE_FAMILY = stringPreferencesKey("title_family")
         val HEADING_FAMILY = stringPreferencesKey("heading_family")
         val BODY_FAMILY = stringPreferencesKey("body_family")
@@ -60,7 +65,12 @@ class SettingsStore(private val context: Context) {
             title = prefs[Keys.TITLE].orEmpty(),
             subtitle = prefs[Keys.SUBTITLE].orEmpty(),
             chapter = prefs[Keys.CHAPTER].orEmpty(),
-            author = prefs[Keys.AUTHOR].orEmpty()
+            author = prefs[Keys.AUTHOR].orEmpty(),
+            translator = prefs[Keys.TRANSLATOR].orEmpty(),
+            publisher = prefs[Keys.PUBLISHER].orEmpty(),
+            publicationYear = prefs[Keys.YEAR].orEmpty(),
+            notes = prefs[Keys.NOTES].orEmpty(),
+            language = prefs[Keys.LANGUAGE] ?: "en"
         )
         val fonts = FontOptions(
             titleFamily = prefs[Keys.TITLE_FAMILY]?.let { FontFamilyOption.valueOf(it) }
@@ -123,6 +133,11 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.SUBTITLE] = settings.metadata.subtitle
             prefs[Keys.CHAPTER] = settings.metadata.chapter
             prefs[Keys.AUTHOR] = settings.metadata.author
+            prefs[Keys.TRANSLATOR] = settings.metadata.translator
+            prefs[Keys.PUBLISHER] = settings.metadata.publisher
+            prefs[Keys.YEAR] = settings.metadata.publicationYear
+            prefs[Keys.NOTES] = settings.metadata.notes
+            prefs[Keys.LANGUAGE] = settings.metadata.language
             prefs[Keys.TITLE_FAMILY] = settings.fonts.titleFamily.name
             prefs[Keys.HEADING_FAMILY] = settings.fonts.headingFamily.name
             prefs[Keys.BODY_FAMILY] = settings.fonts.bodyFamily.name

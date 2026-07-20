@@ -11,6 +11,7 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.lifecycleScope
+import com.astral.ebook.model.toBundle
 import com.astral.ebook.repository.DocumentParser
 import com.astral.ebook.ui.MainScreen
 import com.astral.ebook.ui.PreviewActivity
@@ -44,6 +45,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val editorFile = File(cacheDir, "editor_content.txt")
+        if (!editorFile.exists()) {
+            try {
+                editorFile.createNewFile()
+            } catch (_: Exception) {}
+        }
+        viewModel.updateBodyUri(Uri.fromFile(editorFile))
+
         setContent {
             val state by viewModel.uiState.collectAsState()
             AstralEbookTheme(useDarkTheme = state.settings.themeOptions.useDark ?: false) {
@@ -72,6 +82,7 @@ class MainActivity : ComponentActivity() {
                         val intent = Intent(this@MainActivity, PreviewActivity::class.java).apply {
                             putExtra("bodyUri", state.bodyUri?.toString())
                             putExtra("coverUri", state.coverUri?.toString())
+                            putExtra("settings", state.settings.toBundle())
                         }
                         startActivity(intent)
                     },
