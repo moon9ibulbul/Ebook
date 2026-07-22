@@ -11,6 +11,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.text.style.TextIndent
+import androidx.compose.ui.unit.em
+import com.astral.ebook.model.toEbookSettings
+import com.astral.ebook.model.EbookSettings
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -55,7 +60,9 @@ import androidx.compose.ui.unit.dp
 import com.astral.ebook.model.ParagraphAlignment
 import com.astral.ebook.ui.theme.AstralEbookTheme
 
-class MarkupVisualTransformation : VisualTransformation {
+class MarkupVisualTransformation(
+    private val settings: EbookSettings = EbookSettings()
+) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         val original = text.text
         val N = original.length
@@ -66,7 +73,14 @@ class MarkupVisualTransformation : VisualTransformation {
         val paragraphs = original.split('\n')
         var currentParagraphStart = 0
 
-        for (pText in paragraphs) {
+        val defaultAlignment = when (settings.paragraphOptions.alignment) {
+            ParagraphAlignment.Left -> TextAlign.Left
+            ParagraphAlignment.Center -> TextAlign.Center
+            ParagraphAlignment.Right -> TextAlign.Right
+            ParagraphAlignment.Justify -> TextAlign.Justify
+        }
+
+        for ((index, pText) in paragraphs.withIndex()) {
             val pEnd = currentParagraphStart + pText.length
             var working = pText
             var alignment: TextAlign? = null
@@ -284,9 +298,22 @@ class MarkupVisualTransformation : VisualTransformation {
 
             val pTransEndForPara = builder.length
 
-            if (alignment != null) {
+            val actualAlignment = alignment ?: defaultAlignment
+            val allowsIndent = actualAlignment == TextAlign.Left || actualAlignment == TextAlign.Justify
+            val applyIndent = !(index == 0 && settings.paragraphOptions.skipIndentAfterHeading) && allowsIndent
+
+            val textIndent = if (applyIndent) {
+                TextIndent(firstLine = settings.paragraphOptions.firstLineIndentEm.em)
+            } else {
+                null
+            }
+
+            if (alignment != null || textIndent != null) {
                 builder.addStyle(
-                    ParagraphStyle(textAlign = alignment),
+                    ParagraphStyle(
+                        textAlign = alignment ?: TextAlign.Unspecified,
+                        textIndent = textIndent
+                    ),
                     pTransStart,
                     pTransEndForPara
                 )
@@ -321,11 +348,14 @@ class VisualEditorActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val initialContent = intent.getStringExtra("content") ?: ""
+        val settingsBundle = intent.getBundleExtra("settings")
+        val settings = settingsBundle?.toEbookSettings() ?: EbookSettings()
 
         setContent {
             AstralEbookTheme {
                 VisualEditorScreen(
                     initialContent = initialContent,
+                    settings = settings,
                     onSave = { content ->
                         val data = Intent().apply {
                             putExtra("content", content)
@@ -344,6 +374,7 @@ class VisualEditorActivity : ComponentActivity() {
 @Composable
 fun VisualEditorScreen(
     initialContent: String,
+    settings: EbookSettings = EbookSettings(),
     onSave: (String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -372,6 +403,7 @@ fun VisualEditorScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .imePadding()
         ) {
             FormattingToolbar(
                 onApplyFormatting = { prefix, suffix ->
@@ -446,7 +478,7 @@ fun VisualEditorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                visualTransformation = MarkupVisualTransformation(),
+                visualTransformation = remember(settings) { MarkupVisualTransformation(settings) },
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
