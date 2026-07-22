@@ -148,11 +148,6 @@ object DocumentParser {
                     underline = !underline
                     index += 2
                 }
-                working.startsWith("~~", index) -> {
-                    flush()
-                    strike = !strike
-                    index += 2
-                }
                 working.regionMatches(index, "[u]", 0, 3, ignoreCase = true) -> {
                     flush()
                     underline = true
@@ -176,11 +171,6 @@ object DocumentParser {
                 working[index] == '_' -> {
                     flush()
                     underline = !underline
-                    index++
-                }
-                working[index] == '~' -> {
-                    flush()
-                    strike = !strike
                     index++
                 }
                 working[index] == '*' -> {
