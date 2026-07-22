@@ -181,7 +181,7 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
             .any { it.isNotBlank() }
     }
 
-    private fun calculateBodyHeadingHeight(contentWidth: Float): Float {
+    fun calculateBodyHeadingHeight(contentWidth: Float): Float {
         val subtitle = settings.metadata.subtitle
         val chapter = settings.metadata.chapter
         val headingText = when {
@@ -192,7 +192,7 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
         } ?: return 0f
         val headingLines = wrapText(headingText, headingPaint, contentWidth)
         if (headingLines.isEmpty()) return 0f
-        return (headingLines.size * headingPaint.fontSpacing) + headingGap
+        return headingPaint.textSize + (headingLines.size * headingPaint.fontSpacing) + headingGap
     }
 
     private fun buildLineContent(

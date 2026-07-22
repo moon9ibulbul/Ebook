@@ -204,12 +204,6 @@ class MarkupVisualTransformation(
                         toggleUnderline(builder.length)
                         i += 2
                     }
-                    working.startsWith("~~", i) -> {
-                        origToTrans[origIdx] = builder.length
-                        origToTrans[origIdx + 1] = builder.length
-                        toggleStrike(builder.length)
-                        i += 2
-                    }
                     working.regionMatches(i, "[u]", 0, 3, ignoreCase = true) -> {
                         origToTrans[origIdx] = builder.length
                         origToTrans[origIdx + 1] = builder.length
@@ -249,11 +243,6 @@ class MarkupVisualTransformation(
                     working[i] == '_' -> {
                         origToTrans[origIdx] = builder.length
                         toggleUnderline(builder.length)
-                        i++
-                    }
-                    working[i] == '~' -> {
-                        origToTrans[origIdx] = builder.length
-                        toggleStrike(builder.length)
                         i++
                     }
                     working[i] == '*' -> {
@@ -509,7 +498,7 @@ fun FormattingToolbar(
             ToolbarButton(Icons.Default.FormatBold, "Bold") { onApplyFormatting("**", "**") }
             ToolbarButton(Icons.Default.FormatItalic, "Italic") { onApplyFormatting("*", "*") }
             ToolbarButton(Icons.Default.FormatUnderlined, "Underline") { onApplyFormatting("__", "__") }
-            ToolbarButton(Icons.Default.FormatStrikethrough, "Strikethrough") { onApplyFormatting("~~", "~~") }
+            ToolbarButton(Icons.Default.FormatStrikethrough, "Strikethrough") { onApplyFormatting("[s]", "[/s]") }
             ToolbarButton(Icons.Default.FormatAlignLeft, "Left") { onSetAlignment(ParagraphAlignment.Left) }
             ToolbarButton(Icons.Default.FormatAlignCenter, "Center") { onSetAlignment(ParagraphAlignment.Center) }
             ToolbarButton(Icons.Default.FormatAlignRight, "Right") { onSetAlignment(ParagraphAlignment.Right) }
