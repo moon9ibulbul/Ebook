@@ -76,4 +76,27 @@ class DocumentParserTest {
         val sanitized = com.astral.ebook.ui.sanitizePastedHtml(dirtyHtml)
         assertEquals("Title\n<p align=\"center\">Hello <b>World</b> link</p>\n\n", sanitized)
     }
+
+    @Test
+    fun testMarkupVisualTransformationFormattingAndPerformance() {
+        val transformation = com.astral.ebook.ui.MarkupVisualTransformation()
+
+        val textWithMarkup = "Paragraf biasa.\n<b>Tebal</b> dan <i>miring</i>\n<p align=\"center\">Tengah</p>"
+        val result = transformation.filter(androidx.compose.ui.text.AnnotatedString(textWithMarkup))
+        assertEquals("Paragraf biasa.\nTebal dan miring\nTengah", result.text.text)
+
+        // Performance test on large text (e.g. 50,000 lines)
+        val sb = StringBuilder()
+        for (i in 0 until 10000) {
+            sb.append("Ini adalah paragraf biasa nomor ").append(i).append(" tanpa tag HTML.\n")
+        }
+        val largeText = sb.toString()
+
+        val startTime = System.currentTimeMillis()
+        val largeResult = transformation.filter(androidx.compose.ui.text.AnnotatedString(largeText))
+        val duration = System.currentTimeMillis() - startTime
+
+        assertEquals(largeText, largeResult.text.text)
+        org.junit.Assert.assertTrue("Transformation duration should be under 500ms for 10,000 lines, was $duration ms", duration < 500)
+    }
 }

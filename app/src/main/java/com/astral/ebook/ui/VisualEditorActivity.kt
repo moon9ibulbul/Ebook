@@ -68,6 +68,19 @@ import com.astral.ebook.model.ParagraphAlignment
 import com.astral.ebook.model.toEbookSettings
 import com.astral.ebook.ui.theme.AstralEbookTheme
 
+private val HTML_P_ALIGN_REGEX = Regex(
+    "^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+)
+private val CENTER_TAG_REGEX = Regex(
+    "^<center>(.*)</center>$",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+)
+private val IMG_TAG_REGEX = Regex(
+    "<img\\s+[^>]*src=[\"']([^\"']+)[\"'][^>]*>",
+    RegexOption.IGNORE_CASE
+)
+
 class MarkupVisualTransformation(
     private val settings: EbookSettings = EbookSettings()
 ) : VisualTransformation {
@@ -90,10 +103,7 @@ class MarkupVisualTransformation(
         val N = original.length
         val builder = AnnotatedString.Builder()
         val origToTrans = IntArray(N + 1)
-        val transToOrigList = mutableListOf<Int>()
-
-        val paragraphs = original.split('\n')
-        var currentParagraphStart = 0
+        val transToOrig = IntArray(N + 1)
 
         val defaultAlignment = when (settings.paragraphOptions.alignment) {
             ParagraphAlignment.Left -> TextAlign.Left
@@ -102,234 +112,298 @@ class MarkupVisualTransformation(
             ParagraphAlignment.Justify -> TextAlign.Justify
         }
 
-        val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val imgRegex = Regex("^<img\\s+[^>]*src=[\"']([^\"']+)[\"'][^>]*>", RegexOption.IGNORE_CASE)
+        var currentParagraphStart = 0
+        var paragraphIndex = 0
 
-        for ((index, pText) in paragraphs.withIndex()) {
-            val pEnd = currentParagraphStart + pText.length
-            var working = pText
-            var alignment: TextAlign? = null
-            var tagStartLen = 0
-            var tagEndLen = 0
+        while (currentParagraphStart <= N) {
+            var nextNewline = original.indexOf('\n', currentParagraphStart)
+            if (nextNewline == -1) {
+                nextNewline = N
+            }
 
-            val htmlPMatch = htmlPAlign.find(working)
-            if (htmlPMatch != null) {
-                val alignStr = htmlPMatch.groupValues[1].ifEmpty { htmlPMatch.groupValues[2] }.lowercase()
-                alignment = parseTextAlign(alignStr)
-                val contentGroup = htmlPMatch.groups[3]
-                if (contentGroup != null) {
-                    tagStartLen = contentGroup.range.first
-                    tagEndLen = working.length - (contentGroup.range.last + 1)
-                    working = contentGroup.value
+            val pText = original.substring(currentParagraphStart, nextNewline)
+            val pLen = pText.length
+            val pEnd = currentParagraphStart + pLen
+
+            val hasTagOrEscape = pText.contains('<') || pText.contains('\\')
+
+            if (!hasTagOrEscape) {
+                val pTransStart = builder.length
+                builder.append(pText)
+
+                for (i in 0 until pLen) {
+                    val origIdx = currentParagraphStart + i
+                    val transIdx = pTransStart + i
+                    origToTrans[origIdx] = transIdx
+                    transToOrig[transIdx] = origIdx
+                }
+
+                if (pEnd < N) {
+                    val transIdx = builder.length
+                    builder.append('\n')
+                    transToOrig[transIdx] = pEnd
+                    origToTrans[pEnd] = transIdx
+                }
+
+                val pTransEndForPara = builder.length
+
+                val actualAlignment = defaultAlignment
+                val allowsIndent = actualAlignment == TextAlign.Left || actualAlignment == TextAlign.Justify
+                val applyIndent = !(paragraphIndex == 0 && settings.paragraphOptions.skipIndentAfterHeading) && allowsIndent
+
+                val textIndent = if (applyIndent) {
+                    TextIndent(firstLine = settings.paragraphOptions.firstLineIndentEm.em)
                 } else {
-                    working = htmlPMatch.groupValues[3]
+                    null
+                }
+
+                if (textIndent != null) {
+                    builder.addStyle(
+                        ParagraphStyle(
+                            textAlign = actualAlignment,
+                            textIndent = textIndent
+                        ),
+                        pTransStart,
+                        pTransEndForPara
+                    )
                 }
             } else {
-                val centerMatch = centerTag.find(working)
-                if (centerMatch != null) {
-                    alignment = TextAlign.Center
-                    tagStartLen = 8
-                    tagEndLen = 9
-                    working = centerMatch.groupValues[1]
+                var working = pText
+                var alignment: TextAlign? = null
+                var tagStartLen = 0
+                var tagEndLen = 0
+
+                if (working.startsWith('<')) {
+                    val htmlPMatch = HTML_P_ALIGN_REGEX.find(working)
+                    if (htmlPMatch != null) {
+                        val alignStr = htmlPMatch.groupValues[1].ifEmpty { htmlPMatch.groupValues[2] }.lowercase()
+                        alignment = parseTextAlign(alignStr)
+                        val contentGroup = htmlPMatch.groups[3]
+                        if (contentGroup != null) {
+                            tagStartLen = contentGroup.range.first
+                            tagEndLen = working.length - (contentGroup.range.last + 1)
+                            working = contentGroup.value
+                        } else {
+                            working = htmlPMatch.groupValues[3]
+                        }
+                    } else {
+                        val centerMatch = CENTER_TAG_REGEX.find(working)
+                        if (centerMatch != null) {
+                            alignment = TextAlign.Center
+                            tagStartLen = 8
+                            tagEndLen = 9
+                            working = centerMatch.groupValues[1]
+                        }
+                    }
                 }
-            }
 
-            val pTransStart = builder.length
+                val pTransStart = builder.length
 
-            for (origIdx in currentParagraphStart until (currentParagraphStart + tagStartLen)) {
-                origToTrans[origIdx] = pTransStart
-            }
+                for (origIdx in currentParagraphStart until (currentParagraphStart + tagStartLen)) {
+                    origToTrans[origIdx] = pTransStart
+                }
 
-            var boldStart: Int? = null
-            var italicStart: Int? = null
-            var underlineStart: Int? = null
-            var strikeStart: Int? = null
+                var boldStart: Int? = null
+                var italicStart: Int? = null
+                var underlineStart: Int? = null
+                var strikeStart: Int? = null
 
-            var i = 0
-            while (i < working.length) {
-                val origIdx = currentParagraphStart + tagStartLen + i
+                var i = 0
+                while (i < working.length) {
+                    val origIdx = currentParagraphStart + tagStartLen + i
+                    val ch = working[i]
 
-                if (working[i] == '\\') {
-                    val escaped = working.getOrNull(i + 1)
-                    if (escaped != null && escaped in setOf('<', '\\')) {
-                        origToTrans[origIdx] = builder.length
+                    if (ch != '<' && ch != '\\') {
                         val transIdx = builder.length
-                        builder.append(escaped)
-                        transToOrigList.add(origIdx + 1)
-                        origToTrans[origIdx + 1] = transIdx
-                        i += 2
-                        continue
-                    }
-                }
-
-                val imgMatch = imgRegex.find(working.substring(i))
-                if (imgMatch != null && imgMatch.range.first == 0) {
-                    val matchLen = imgMatch.value.length
-                    for (k in 0 until matchLen) {
-                        origToTrans[origIdx + k] = builder.length
-                    }
-                    val placeholder = "[Gambar]"
-                    val imgTransStart = builder.length
-                    builder.append(placeholder)
-                    builder.addStyle(SpanStyle(color = Color(0xFF1976D2), fontWeight = FontWeight.Bold), imgTransStart, builder.length)
-                    for (k in 0 until placeholder.length) {
-                        transToOrigList.add(origIdx)
-                    }
-                    i += matchLen
-                    continue
-                }
-
-                when {
-                    // HTML tags
-                    working.regionMatches(i, "<b>", 0, 3, ignoreCase = true) -> {
-                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
-                        if (boldStart == null) boldStart = builder.length
-                        i += 3
-                    }
-                    working.regionMatches(i, "<strong>", 0, 8, ignoreCase = true) -> {
-                        for (k in 0 until 8) origToTrans[origIdx + k] = builder.length
-                        if (boldStart == null) boldStart = builder.length
-                        i += 8
-                    }
-                    working.regionMatches(i, "</b>", 0, 4, ignoreCase = true) -> {
-                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                        boldStart?.let {
-                            builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
-                            boldStart = null
-                        }
-                        i += 4
-                    }
-                    working.regionMatches(i, "</strong>", 0, 9, ignoreCase = true) -> {
-                        for (k in 0 until 9) origToTrans[origIdx + k] = builder.length
-                        boldStart?.let {
-                            builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
-                            boldStart = null
-                        }
-                        i += 9
-                    }
-                    working.regionMatches(i, "<i>", 0, 3, ignoreCase = true) -> {
-                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
-                        if (italicStart == null) italicStart = builder.length
-                        i += 3
-                    }
-                    working.regionMatches(i, "<em>", 0, 4, ignoreCase = true) -> {
-                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                        if (italicStart == null) italicStart = builder.length
-                        i += 4
-                    }
-                    working.regionMatches(i, "</i>", 0, 4, ignoreCase = true) -> {
-                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                        italicStart?.let {
-                            builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
-                            italicStart = null
-                        }
-                        i += 4
-                    }
-                    working.regionMatches(i, "</em>", 0, 5, ignoreCase = true) -> {
-                        for (k in 0 until 5) origToTrans[origIdx + k] = builder.length
-                        italicStart?.let {
-                            builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
-                            italicStart = null
-                        }
-                        i += 5
-                    }
-                    working.regionMatches(i, "<u>", 0, 3, ignoreCase = true) -> {
-                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
-                        if (underlineStart == null) underlineStart = builder.length
-                        i += 3
-                    }
-                    working.regionMatches(i, "</u>", 0, 4, ignoreCase = true) -> {
-                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                        underlineStart?.let {
-                            builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, builder.length)
-                            underlineStart = null
-                        }
-                        i += 4
-                    }
-                    working.regionMatches(i, "<s>", 0, 3, ignoreCase = true) ||
-                    working.regionMatches(i, "<del>", 0, 5, ignoreCase = true) ||
-                    working.regionMatches(i, "<strike>", 0, 8, ignoreCase = true) -> {
-                        val len = when {
-                            working.regionMatches(i, "<s>", 0, 3, ignoreCase = true) -> 3
-                            working.regionMatches(i, "<del>", 0, 5, ignoreCase = true) -> 5
-                            else -> 8
-                        }
-                        for (k in 0 until len) origToTrans[origIdx + k] = builder.length
-                        if (strikeStart == null) strikeStart = builder.length
-                        i += len
-                    }
-                    working.regionMatches(i, "</s>", 0, 4, ignoreCase = true) ||
-                    working.regionMatches(i, "</del>", 0, 6, ignoreCase = true) ||
-                    working.regionMatches(i, "</strike>", 0, 9, ignoreCase = true) -> {
-                        val len = when {
-                            working.regionMatches(i, "</s>", 0, 4, ignoreCase = true) -> 4
-                            working.regionMatches(i, "</del>", 0, 6, ignoreCase = true) -> 6
-                            else -> 9
-                        }
-                        for (k in 0 until len) origToTrans[origIdx + k] = builder.length
-                        strikeStart?.let {
-                            builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, builder.length)
-                            strikeStart = null
-                        }
-                        i += len
-                    }
-                    else -> {
-                        val transIdx = builder.length
-                        builder.append(working[i])
-                        transToOrigList.add(origIdx)
+                        builder.append(ch)
+                        transToOrig[transIdx] = origIdx
                         origToTrans[origIdx] = transIdx
                         i++
+                        continue
+                    }
+
+                    if (ch == '\\') {
+                        val escaped = working.getOrNull(i + 1)
+                        if (escaped != null && escaped in setOf('<', '\\')) {
+                            origToTrans[origIdx] = builder.length
+                            val transIdx = builder.length
+                            builder.append(escaped)
+                            transToOrig[transIdx] = origIdx + 1
+                            origToTrans[origIdx + 1] = transIdx
+                            i += 2
+                            continue
+                        }
+                    }
+
+                    if (working.regionMatches(i, "<img", 0, 4, ignoreCase = true)) {
+                        val imgMatch = IMG_TAG_REGEX.find(working, i)
+                        if (imgMatch != null && imgMatch.range.first == i) {
+                            val matchLen = imgMatch.value.length
+                            for (k in 0 until matchLen) {
+                                origToTrans[origIdx + k] = builder.length
+                            }
+                            val placeholder = "[Gambar]"
+                            val imgTransStart = builder.length
+                            builder.append(placeholder)
+                            builder.addStyle(SpanStyle(color = Color(0xFF1976D2), fontWeight = FontWeight.Bold), imgTransStart, builder.length)
+                            for (k in 0 until placeholder.length) {
+                                transToOrig[imgTransStart + k] = origIdx
+                            }
+                            i += matchLen
+                            continue
+                        }
+                    }
+
+                    when {
+                        working.regionMatches(i, "<b>", 0, 3, ignoreCase = true) -> {
+                            for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
+                            if (boldStart == null) boldStart = builder.length
+                            i += 3
+                        }
+                        working.regionMatches(i, "<strong>", 0, 8, ignoreCase = true) -> {
+                            for (k in 0 until 8) origToTrans[origIdx + k] = builder.length
+                            if (boldStart == null) boldStart = builder.length
+                            i += 8
+                        }
+                        working.regionMatches(i, "</b>", 0, 4, ignoreCase = true) -> {
+                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                            boldStart?.let {
+                                builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
+                                boldStart = null
+                            }
+                            i += 4
+                        }
+                        working.regionMatches(i, "</strong>", 0, 9, ignoreCase = true) -> {
+                            for (k in 0 until 9) origToTrans[origIdx + k] = builder.length
+                            boldStart?.let {
+                                builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
+                                boldStart = null
+                            }
+                            i += 9
+                        }
+                        working.regionMatches(i, "<i>", 0, 3, ignoreCase = true) -> {
+                            for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
+                            if (italicStart == null) italicStart = builder.length
+                            i += 3
+                        }
+                        working.regionMatches(i, "<em>", 0, 4, ignoreCase = true) -> {
+                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                            if (italicStart == null) italicStart = builder.length
+                            i += 4
+                        }
+                        working.regionMatches(i, "</i>", 0, 4, ignoreCase = true) -> {
+                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                            italicStart?.let {
+                                builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
+                                italicStart = null
+                            }
+                            i += 4
+                        }
+                        working.regionMatches(i, "</em>", 0, 5, ignoreCase = true) -> {
+                            for (k in 0 until 5) origToTrans[origIdx + k] = builder.length
+                            italicStart?.let {
+                                builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
+                                italicStart = null
+                            }
+                            i += 5
+                        }
+                        working.regionMatches(i, "<u>", 0, 3, ignoreCase = true) -> {
+                            for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
+                            if (underlineStart == null) underlineStart = builder.length
+                            i += 3
+                        }
+                        working.regionMatches(i, "</u>", 0, 4, ignoreCase = true) -> {
+                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                            underlineStart?.let {
+                                builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, builder.length)
+                                underlineStart = null
+                            }
+                            i += 4
+                        }
+                        working.regionMatches(i, "<s>", 0, 3, ignoreCase = true) ||
+                        working.regionMatches(i, "<del>", 0, 5, ignoreCase = true) ||
+                        working.regionMatches(i, "<strike>", 0, 8, ignoreCase = true) -> {
+                            val len = when {
+                                working.regionMatches(i, "<s>", 0, 3, ignoreCase = true) -> 3
+                                working.regionMatches(i, "<del>", 0, 5, ignoreCase = true) -> 5
+                                else -> 8
+                            }
+                            for (k in 0 until len) origToTrans[origIdx + k] = builder.length
+                            if (strikeStart == null) strikeStart = builder.length
+                            i += len
+                        }
+                        working.regionMatches(i, "</s>", 0, 4, ignoreCase = true) ||
+                        working.regionMatches(i, "</del>", 0, 6, ignoreCase = true) ||
+                        working.regionMatches(i, "</strike>", 0, 9, ignoreCase = true) -> {
+                            val len = when {
+                                working.regionMatches(i, "</s>", 0, 4, ignoreCase = true) -> 4
+                                working.regionMatches(i, "</del>", 0, 6, ignoreCase = true) -> 6
+                                else -> 9
+                            }
+                            for (k in 0 until len) origToTrans[origIdx + k] = builder.length
+                            strikeStart?.let {
+                                builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, builder.length)
+                                strikeStart = null
+                            }
+                            i += len
+                        }
+                        else -> {
+                            val transIdx = builder.length
+                            builder.append(ch)
+                            transToOrig[transIdx] = origIdx
+                            origToTrans[origIdx] = transIdx
+                            i++
+                        }
                     }
                 }
-            }
 
-            val pTransEnd = builder.length
-            boldStart?.let { builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, pTransEnd) }
-            italicStart?.let { builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, pTransEnd) }
-            underlineStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, pTransEnd) }
-            strikeStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, pTransEnd) }
+                val pTransEnd = builder.length
+                boldStart?.let { builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, pTransEnd) }
+                italicStart?.let { builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, pTransEnd) }
+                underlineStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, pTransEnd) }
+                strikeStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, pTransEnd) }
 
-            for (origIdx in (pEnd - tagEndLen) until pEnd) {
-                origToTrans[origIdx] = pTransEnd
-            }
+                for (origIdx in (pEnd - tagEndLen) until pEnd) {
+                    origToTrans[origIdx] = pTransEnd
+                }
 
-            if (pEnd < N) {
-                val transIdx = builder.length
-                builder.append('\n')
-                transToOrigList.add(pEnd)
-                origToTrans[pEnd] = transIdx
-            }
+                if (pEnd < N) {
+                    val transIdx = builder.length
+                    builder.append('\n')
+                    transToOrig[transIdx] = pEnd
+                    origToTrans[pEnd] = transIdx
+                }
 
-            val pTransEndForPara = builder.length
+                val pTransEndForPara = builder.length
 
-            val actualAlignment = alignment ?: defaultAlignment
-            val allowsIndent = actualAlignment == TextAlign.Left || actualAlignment == TextAlign.Justify
-            val applyIndent = !(index == 0 && settings.paragraphOptions.skipIndentAfterHeading) && allowsIndent
+                val actualAlignment = alignment ?: defaultAlignment
+                val allowsIndent = actualAlignment == TextAlign.Left || actualAlignment == TextAlign.Justify
+                val applyIndent = !(paragraphIndex == 0 && settings.paragraphOptions.skipIndentAfterHeading) && allowsIndent
 
-            val textIndent = if (applyIndent) {
-                TextIndent(firstLine = settings.paragraphOptions.firstLineIndentEm.em)
-            } else {
-                null
-            }
+                val textIndent = if (applyIndent) {
+                    TextIndent(firstLine = settings.paragraphOptions.firstLineIndentEm.em)
+                } else {
+                    null
+                }
 
-            if (alignment != null || textIndent != null) {
-                builder.addStyle(
-                    ParagraphStyle(
-                        textAlign = alignment ?: TextAlign.Unspecified,
-                        textIndent = textIndent
-                    ),
-                    pTransStart,
-                    pTransEndForPara
-                )
+                if (alignment != null || textIndent != null) {
+                    builder.addStyle(
+                        ParagraphStyle(
+                            textAlign = alignment ?: TextAlign.Unspecified,
+                            textIndent = textIndent
+                        ),
+                        pTransStart,
+                        pTransEndForPara
+                    )
+                }
             }
 
             currentParagraphStart = pEnd + 1
+            paragraphIndex++
         }
 
         origToTrans[N] = builder.length
-        transToOrigList.add(N)
-        val transToOrigArray = transToOrigList.toIntArray()
+        transToOrig[builder.length] = N
 
         val offsetMapping = object : OffsetMapping {
             override fun originalToTransformed(offset: Int): Int {
@@ -339,7 +413,7 @@ class MarkupVisualTransformation(
 
             override fun transformedToOriginal(offset: Int): Int {
                 val clamped = offset.coerceIn(0, builder.length)
-                return transToOrigArray[clamped]
+                return transToOrig[clamped]
             }
         }
 
