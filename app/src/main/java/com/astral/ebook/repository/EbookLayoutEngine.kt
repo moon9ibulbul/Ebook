@@ -23,7 +23,7 @@ data class TextRunSegment(
 )
 
 sealed interface LineContent {
-    data class Text(val segments: List<TextRunSegment>, val indent: Float, val alignment: ParagraphAlignment) : LineContent
+    data class Text(val segments: List<TextRunSegment>, val indent: Float, val alignment: ParagraphAlignment, val height: Float = 0f) : LineContent
     data class Spacer(val spacing: Float) : LineContent
 }
 
@@ -149,11 +149,15 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
 
                 while (lineIndex < allLines.size && y < pageHeight.toFloat() - margins.bottom - footerSpace) {
                     val line = allLines[lineIndex]
-                    pageLines.add(line)
-                    when (line) {
-                        is LineContent.Text -> y += lineHeight
-                        is LineContent.Spacer -> y += line.spacing
+                    val currentLineHeight = when (line) {
+                        is LineContent.Text -> if (line.height > 0f) line.height else lineHeight
+                        is LineContent.Spacer -> line.spacing
                     }
+                    if (pageLines.isNotEmpty() && y + currentLineHeight > pageHeight.toFloat() - margins.bottom - footerSpace) {
+                        break
+                    }
+                    pageLines.add(line)
+                    y += currentLineHeight
                     lineIndex++
                 }
 
@@ -251,16 +255,35 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
             }
         }
 
+        var maxImageHeightOnLine = 0f
+
+        fun flushWithImageHeight() {
+            if (currentSegments.isNotEmpty()) {
+                val indentForLine = if (isFirstLine) currentIndent else 0f
+                val computedHeight = maxOf(lineHeight, maxImageHeightOnLine)
+                lines += LineContent.Text(currentSegments.toList(), indentForLine, alignment, computedHeight)
+                currentSegments = mutableListOf()
+                currentWidth = 0f
+                maxImageHeightOnLine = 0f
+                isFirstLine = false
+                currentIndent = 0f
+                availableWidth = contentWidth
+            }
+        }
+
         paragraph.runs.forEach { run ->
             if (run.imageUri != null) {
-                val token = if (currentSegments.isEmpty()) "[Gambar]" else " [Gambar]"
-                val paint = bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
-                var width = paint.measureText(token)
-                if (currentWidth + width > availableWidth && currentSegments.isNotEmpty()) {
-                    flush()
+                val (imgW, imgH) = getImageDimensions(context, run.imageUri, contentWidth)
+                if (currentWidth + imgW > availableWidth && currentSegments.isNotEmpty()) {
+                    flushWithImageHeight()
                 }
+                val token = "[Gambar]"
                 currentSegments += TextRunSegment(token, run.bold, run.italic, run.underline, run.strikeThrough, run.imageUri)
-                currentWidth += width
+                currentWidth += imgW
+                maxImageHeightOnLine = maxOf(maxImageHeightOnLine, imgH)
+                if (currentWidth >= availableWidth) {
+                    flushWithImageHeight()
+                }
             } else {
                 val words = run.text.split(Regex("""\s+""")).filter { it.isNotEmpty() }
                 for (word in words) {
@@ -268,7 +291,7 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
                     var paint = bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
                     var width = paint.measureText(token)
                     if (currentWidth + width > availableWidth && currentSegments.isNotEmpty()) {
-                        flush()
+                        flushWithImageHeight()
                         token = word
                         paint = bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
                         width = paint.measureText(token)
@@ -278,7 +301,7 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
                 }
             }
         }
-        flush()
+        flushWithImageHeight()
         return lines
     }
 
@@ -363,3 +386,26 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
 data class FooterContent(val left: String, val right: String)
 
 private fun ParagraphAlignment.allowsIndent(): Boolean = this == ParagraphAlignment.Left || this == ParagraphAlignment.Justify
+
+internal fun getImageDimensions(context: Context, uriString: String, maxAvailableWidth: Float): Pair<Float, Float> {
+    val defaultWidth = minOf(300f * context.resources.displayMetrics.density, maxAvailableWidth)
+    val defaultHeight = defaultWidth * 0.75f
+    return try {
+        val uri = Uri.parse(uriString)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeStream(input, null, options)
+            if (options.outWidth > 0 && options.outHeight > 0) {
+                val rawW = options.outWidth.toFloat()
+                val rawH = options.outHeight.toFloat()
+                val targetW = minOf(rawW, maxAvailableWidth)
+                val targetH = rawH * (targetW / rawW)
+                targetW to targetH
+            } else {
+                defaultWidth to defaultHeight
+            }
+        } ?: (defaultWidth to defaultHeight)
+    } catch (_: Exception) {
+        defaultWidth to defaultHeight
+    }
+}

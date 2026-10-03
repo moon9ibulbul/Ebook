@@ -104,9 +104,7 @@ class MarkupVisualTransformation(
 
         val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val imgRegex = Regex("^<img\\s+[^>]*src=[\"']([^\"']+)[\"'][^>]*>|^\\[img](.*?)\\[/img]", RegexOption.IGNORE_CASE)
+        val imgRegex = Regex("^<img\\s+[^>]*src=[\"']([^\"']+)[\"'][^>]*>", RegexOption.IGNORE_CASE)
 
         for ((index, pText) in paragraphs.withIndex()) {
             val pEnd = currentParagraphStart + pText.length
@@ -134,24 +132,6 @@ class MarkupVisualTransformation(
                     tagStartLen = 8
                     tagEndLen = 9
                     working = centerMatch.groupValues[1]
-                } else {
-                    val bracketMatch = bracketAlign.find(working)
-                    if (bracketMatch != null) {
-                        val alignStr = bracketMatch.groupValues[1].lowercase()
-                        alignment = parseTextAlign(alignStr)
-                        tagStartLen = alignStr.length + 2
-                        tagEndLen = alignStr.length + 3
-                        working = bracketMatch.groupValues[2]
-                    } else {
-                        val attrMatch = attrAlign.find(working)
-                        if (attrMatch != null) {
-                            val alignStr = attrMatch.groupValues[1].lowercase()
-                            alignment = parseTextAlign(alignStr)
-                            tagStartLen = alignStr.length + 8
-                            tagEndLen = 8
-                            working = attrMatch.groupValues[2]
-                        }
-                    }
                 }
             }
 
@@ -172,7 +152,7 @@ class MarkupVisualTransformation(
 
                 if (working[i] == '\\') {
                     val escaped = working.getOrNull(i + 1)
-                    if (escaped != null && escaped in setOf('*', '_', '~', '[', '<', '\\')) {
+                    if (escaped != null && escaped in setOf('<', '\\')) {
                         origToTrans[origIdx] = builder.length
                         val transIdx = builder.length
                         builder.append(escaped)
@@ -293,59 +273,6 @@ class MarkupVisualTransformation(
                             strikeStart = null
                         }
                         i += len
-                    }
-                    // Legacy tags
-                    working.startsWith("***", i) -> {
-                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
-                        val bStart = boldStart
-                        if (bStart == null) boldStart = builder.length else { builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), bStart, builder.length); boldStart = null }
-                        val itStart = italicStart
-                        if (itStart == null) italicStart = builder.length else { builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), itStart, builder.length); italicStart = null }
-                        i += 3
-                    }
-                    working.startsWith("**", i) -> {
-                        for (k in 0 until 2) origToTrans[origIdx + k] = builder.length
-                        val bStart = boldStart
-                        if (bStart == null) boldStart = builder.length else { builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), bStart, builder.length); boldStart = null }
-                        i += 2
-                    }
-                    working.startsWith("__", i) -> {
-                        for (k in 0 until 2) origToTrans[origIdx + k] = builder.length
-                        val uStart = underlineStart
-                        if (uStart == null) underlineStart = builder.length else { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), uStart, builder.length); underlineStart = null }
-                        i += 2
-                    }
-                    working.regionMatches(i, "[u]", 0, 3, ignoreCase = true) -> {
-                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
-                        if (underlineStart == null) underlineStart = builder.length
-                        i += 3
-                    }
-                    working.regionMatches(i, "[/u]", 0, 4, ignoreCase = true) -> {
-                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                        underlineStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, builder.length); underlineStart = null }
-                        i += 4
-                    }
-                    working.regionMatches(i, "[s]", 0, 3, ignoreCase = true) -> {
-                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
-                        if (strikeStart == null) strikeStart = builder.length
-                        i += 3
-                    }
-                    working.regionMatches(i, "[/s]", 0, 4, ignoreCase = true) -> {
-                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                        strikeStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, builder.length); strikeStart = null }
-                        i += 4
-                    }
-                    working[i] == '_' -> {
-                        origToTrans[origIdx] = builder.length
-                        val uStart = underlineStart
-                        if (uStart == null) underlineStart = builder.length else { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), uStart, builder.length); underlineStart = null }
-                        i++
-                    }
-                    working[i] == '*' -> {
-                        origToTrans[origIdx] = builder.length
-                        val itStart = italicStart
-                        if (itStart == null) italicStart = builder.length else { builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), itStart, builder.length); italicStart = null }
-                        i++
                     }
                     else -> {
                         val transIdx = builder.length
@@ -543,8 +470,6 @@ fun VisualEditorScreen(
 
                     val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
                     val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                    val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                    val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
                     var workingPara = paraText.trim()
                     var existingAlign: String? = null
@@ -561,18 +486,6 @@ fun VisualEditorScreen(
                         if (centerMatch != null) {
                             existingAlign = "center"
                             workingPara = centerMatch.groupValues[1].trim()
-                            continue
-                        }
-                        val bracketMatch = bracketAlign.find(workingPara)
-                        if (bracketMatch != null) {
-                            existingAlign = bracketMatch.groupValues[1].lowercase()
-                            workingPara = bracketMatch.groupValues[2].trim()
-                            continue
-                        }
-                        val attrMatch = attrAlign.find(workingPara)
-                        if (attrMatch != null) {
-                            existingAlign = attrMatch.groupValues[1].lowercase()
-                            workingPara = attrMatch.groupValues[2].trim()
                             continue
                         }
                         matched = false
@@ -635,13 +548,100 @@ private fun getClipboardHtml(context: Context): String? {
         val htmlText = item?.htmlText
         if (!htmlText.isNullOrBlank()) {
             val bodyMatch = Regex("<body[^>]*>(.*?)</body>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(htmlText)
-            bodyMatch?.groupValues?.get(1)?.trim() ?: htmlText
+            val extracted = bodyMatch?.groupValues?.get(1)?.trim() ?: htmlText
+            sanitizePastedHtml(extracted)
         } else {
             null
         }
     } catch (_: Exception) {
         null
     }
+}
+
+fun sanitizePastedHtml(html: String): String {
+    if (html.isBlank()) return ""
+
+    var clean = html.replace(Regex("<script[^>]*>.*?</script>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "")
+        .replace(Regex("<style[^>]*>.*?</style>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "")
+
+    clean = clean.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+
+    val tagRegex = Regex("</?([a-zA-Z1-6]+)(?:\\s+[^>]*)?>")
+    val alignRegex = Regex("(?:align=[\"']?([a-zA-Z]+)[\"']?|style=[\"'][^\"']*text-align:\\s*([a-zA-Z]+))", RegexOption.IGNORE_CASE)
+    val srcRegex = Regex("src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+
+    val sb = StringBuilder()
+    var lastIdx = 0
+    val blockStack = java.util.ArrayDeque<Boolean>()
+
+    for (match in tagRegex.findAll(clean)) {
+        sb.append(clean.substring(lastIdx, match.range.first))
+        lastIdx = match.range.last + 1
+
+        val fullTag = match.value
+        val tagName = match.groupValues[1].lowercase()
+        val isClosing = fullTag.startsWith("</")
+
+        if (isClosing) {
+            when (tagName) {
+                "b", "strong", "i", "em", "u", "s", "del", "strike" -> {
+                    sb.append("</$tagName>")
+                }
+                "center" -> {
+                    sb.append("</center>\n")
+                }
+                "p", "div" -> {
+                    val isAligned = if (blockStack.isNotEmpty()) blockStack.pop() else false
+                    if (isAligned) {
+                        sb.append("</$tagName>\n")
+                    } else {
+                        sb.append("\n")
+                    }
+                }
+                "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr" -> {
+                    sb.append("\n")
+                }
+            }
+        } else {
+            when (tagName) {
+                "b", "strong", "i", "em", "u", "s", "del", "strike" -> {
+                    sb.append("<$tagName>")
+                }
+                "center" -> {
+                    sb.append("<center>")
+                }
+                "img" -> {
+                    val srcMatch = srcRegex.find(fullTag)
+                    if (srcMatch != null) {
+                        val src = srcMatch.groupValues[1]
+                        sb.append("<img src=\"$src\"/>")
+                    }
+                }
+                "p", "div" -> {
+                    val alignMatch = alignRegex.find(fullTag)
+                    val alignVal = alignMatch?.let { m ->
+                        m.groupValues[1].ifEmpty { m.groupValues[2] }.lowercase()
+                    }
+                    if (alignVal != null && alignVal in setOf("left", "center", "right", "justify")) {
+                        blockStack.push(true)
+                        sb.append("<$tagName align=\"$alignVal\">")
+                    } else {
+                        blockStack.push(false)
+                    }
+                }
+            }
+        }
+    }
+    sb.append(clean.substring(lastIdx))
+
+    return sb.toString()
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
 }
 
 @Composable

@@ -8,14 +8,14 @@ import org.junit.Test
 class DocumentParserTest {
     @Test
     fun testParseParagraphMarkupCenter() {
-        val paragraph = DocumentParser.parseParagraphMarkup("[center]Paragraf ini rata tengah[/center]")
+        val paragraph = DocumentParser.parseParagraphMarkup("<center>Paragraf ini rata tengah</center>")
         assertEquals(ParagraphAlignment.Center, paragraph.alignment)
         assertEquals("Paragraf ini rata tengah", paragraph.plainText())
     }
 
     @Test
     fun testParseParagraphMarkupRight() {
-        val paragraph = DocumentParser.parseParagraphMarkup("[align=right]Paragraf ini rata kanan[/align]")
+        val paragraph = DocumentParser.parseParagraphMarkup("<p align=\"right\">Paragraf ini rata kanan</p>")
         assertEquals(ParagraphAlignment.Right, paragraph.alignment)
         assertEquals("Paragraf ini rata kanan", paragraph.plainText())
     }
@@ -28,8 +28,8 @@ class DocumentParserTest {
     }
 
     @Test
-    fun testParseStrikethroughWithSquareBrackets() {
-        val paragraph = DocumentParser.parseParagraphMarkup("Ini [s]dicoret[/s] biasa")
+    fun testParseStrikethroughWithHtml() {
+        val paragraph = DocumentParser.parseParagraphMarkup("Ini <s>dicoret</s> biasa")
         assertEquals(3, paragraph.runs.size)
         assertEquals("Ini ", paragraph.runs[0].text)
         assertEquals(false, paragraph.runs[0].strikeThrough)
@@ -39,14 +39,6 @@ class DocumentParserTest {
 
         assertEquals(" biasa", paragraph.runs[2].text)
         assertEquals(false, paragraph.runs[2].strikeThrough)
-    }
-
-    @Test
-    fun testTildeIsParsedAsPlaintext() {
-        val paragraph = DocumentParser.parseParagraphMarkup("Ini ~tidak dicoret~ biasa")
-        assertEquals(1, paragraph.runs.size)
-        assertEquals("Ini ~tidak dicoret~ biasa", paragraph.runs[0].text)
-        assertEquals(false, paragraph.runs[0].strikeThrough)
     }
 
     @Test
@@ -76,5 +68,12 @@ class DocumentParserTest {
         assertEquals("[Gambar]", paragraph.runs[1].text)
         assertEquals("content://media/external/images/media/123", paragraph.runs[1].imageUri)
         assertEquals(" teks sesudah", paragraph.runs[2].text)
+    }
+
+    @Test
+    fun testSanitizePastedHtmlStripsUnsupportedTags() {
+        val dirtyHtml = "<div style=\"color: red;\"><h1>Title</h1><p align=\"center\">Hello <script>alert('xss')</script><b>World</b> <a href=\"http://example.com\">link</a></p></div>"
+        val sanitized = com.astral.ebook.ui.sanitizePastedHtml(dirtyHtml)
+        assertEquals("Title\n<p align=\"center\">Hello <b>World</b> link</p>\n\n", sanitized)
     }
 }

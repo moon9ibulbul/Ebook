@@ -12,8 +12,7 @@ import java.io.InputStreamReader
 /**
  * Utilities to load body content from the Storage Access Framework selections.
  *
- * TXT files are parsed as UTF-8 and support lightweight markup such as *italic*, **bold**,
- * _underline_, ~strikethrough~, and [center]custom alignment[/center].
+ * TXT files are parsed as UTF-8 and support HTML markup tags for styling and alignment.
  * DOCX files rely on Apache POI (see build.gradle) to strip out paragraph text.
  */
 data class DocumentContent(val paragraphs: List<FormattedParagraph>) {
@@ -98,11 +97,8 @@ object DocumentParser {
         var working = source.trim('\n', '\r')
         var alignment: ParagraphAlignment? = null
 
-        // Strip HTML alignment tags (<p align="...">, <p style="text-align:...">, <center>, <div align="...">)
         val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
         val htmlPMatch = htmlPAlign.find(working)
         if (htmlPMatch != null) {
@@ -114,18 +110,6 @@ object DocumentParser {
             if (centerMatch != null) {
                 alignment = ParagraphAlignment.Center
                 working = centerMatch.groupValues[1].trim()
-            } else {
-                val bracketMatch = bracketAlign.find(working)
-                if (bracketMatch != null) {
-                    alignment = bracketMatch.groupValues[1].toParagraphAlignment()
-                    working = bracketMatch.groupValues[2].trim()
-                } else {
-                    val attrMatch = attrAlign.find(working)
-                    if (attrMatch != null) {
-                        alignment = attrMatch.groupValues[1].toParagraphAlignment()
-                        working = attrMatch.groupValues[2].trim()
-                    }
-                }
             }
         }
 
@@ -144,12 +128,12 @@ object DocumentParser {
             }
         }
 
-        val imgRegex = Regex("^<img\\s+[^>]*src=[\"']([^\"']+)[\"'][^>]*>|^\\[img](.*?)\\[/img]", RegexOption.IGNORE_CASE)
+        val imgRegex = Regex("^<img\\s+[^>]*src=[\"']([^\"']+)[\"'][^>]*>", RegexOption.IGNORE_CASE)
 
         while (index < working.length) {
             if (working[index] == '\\') {
                 val escaped = working.getOrNull(index + 1)
-                if (escaped != null && escaped in setOf('*', '_', '~', '[', '<', '\\')) {
+                if (escaped != null && escaped in setOf('<', '\\')) {
                     buffer.append(escaped)
                     index += 2
                     continue
@@ -159,7 +143,7 @@ object DocumentParser {
             val imgMatch = imgRegex.find(working.substring(index))
             if (imgMatch != null && imgMatch.range.first == 0) {
                 flush()
-                val uri = imgMatch.groupValues[1].ifEmpty { imgMatch.groupValues[2] }
+                val uri = imgMatch.groupValues[1]
                 runs += TextRun(text = "[Gambar]", bold = bold, italic = italic, underline = underline, strikeThrough = strike, imageUri = uri)
                 index += imgMatch.value.length
                 continue
@@ -222,53 +206,6 @@ object DocumentParser {
                         working.regionMatches(index, "</del>", 0, 6, ignoreCase = true) -> 6
                         else -> 9
                     }
-                }
-                // Legacy tags
-                working.startsWith("***", index) -> {
-                    flush()
-                    bold = !bold
-                    italic = !italic
-                    index += 3
-                }
-                working.startsWith("**", index) -> {
-                    flush()
-                    bold = !bold
-                    index += 2
-                }
-                working.startsWith("__", index) -> {
-                    flush()
-                    underline = !underline
-                    index += 2
-                }
-                working.regionMatches(index, "[u]", 0, 3, ignoreCase = true) -> {
-                    flush()
-                    underline = true
-                    index += 3
-                }
-                working.regionMatches(index, "[/u]", 0, 4, ignoreCase = true) -> {
-                    flush()
-                    underline = false
-                    index += 4
-                }
-                working.regionMatches(index, "[s]", 0, 3, ignoreCase = true) -> {
-                    flush()
-                    strike = true
-                    index += 3
-                }
-                working.regionMatches(index, "[/s]", 0, 4, ignoreCase = true) -> {
-                    flush()
-                    strike = false
-                    index += 4
-                }
-                working[index] == '_' -> {
-                    flush()
-                    underline = !underline
-                    index++
-                }
-                working[index] == '*' -> {
-                    flush()
-                    italic = !italic
-                    index++
                 }
                 else -> {
                     buffer.append(working[index])

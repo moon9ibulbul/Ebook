@@ -49,35 +49,52 @@ class PageRenderer(
 
         val footer = layoutEngine.buildFooterContent(page.pageNumber)
 
-        var y = margins.top + headingOffset + layoutEngine.lineHeight
+        var y = margins.top + headingOffset
         page.lines.forEach { line ->
             when (line) {
                 is LineContent.Text -> {
-                    val lineWidth = line.segments.sumOf {
-                        layoutEngine.bodyPaint(
-                            it.bold,
-                            it.italic,
-                            it.underline,
-                            it.strikeThrough
-                        ).measureText(it.text).toDouble()
+                    val currentLineHeight = if (line.height > 0f) line.height else layoutEngine.lineHeight
+                    val lineWidth = line.segments.sumOf { segment ->
+                        if (segment.imageUri != null) {
+                            val (imgW, _) = getImageDimensions(context, segment.imageUri, contentWidth)
+                            imgW.toDouble()
+                        } else {
+                            layoutEngine.bodyPaint(
+                                segment.bold,
+                                segment.italic,
+                                segment.underline,
+                                segment.strikeThrough
+                            ).measureText(segment.text).toDouble()
+                        }
                     }.toFloat()
+
                     val startX = when (line.alignment) {
                         ParagraphAlignment.Left, ParagraphAlignment.Justify -> margins.start + line.indent
                         ParagraphAlignment.Center -> margins.start + (contentWidth - lineWidth) / 2f
                         ParagraphAlignment.Right -> pageWidth.toFloat() - margins.end - lineWidth
                     }
                     var x = startX
+                    val baselineY = y + currentLineHeight - (layoutEngine.baseBodyPaint.fontMetrics.descent)
+
                     line.segments.forEach { segment ->
-                        val paint = layoutEngine.bodyPaint(
-                            segment.bold,
-                            segment.italic,
-                            segment.underline,
-                            segment.strikeThrough
-                        )
-                        canvas.drawText(segment.text, x, y, paint)
-                        x += paint.measureText(segment.text)
+                        if (segment.imageUri != null) {
+                            val (imgW, imgH) = getImageDimensions(context, segment.imageUri, contentWidth)
+                            val imgTop = baselineY - imgH
+                            val imgRect = RectF(x, imgTop, x + imgW, baselineY)
+                            drawImageSegment(canvas, segment.imageUri, imgRect)
+                            x += imgW
+                        } else {
+                            val paint = layoutEngine.bodyPaint(
+                                segment.bold,
+                                segment.italic,
+                                segment.underline,
+                                segment.strikeThrough
+                            )
+                            canvas.drawText(segment.text, x, baselineY, paint)
+                            x += paint.measureText(segment.text)
+                        }
                     }
-                    y += layoutEngine.lineHeight
+                    y += currentLineHeight
                 }
                 is LineContent.Spacer -> {
                     y += line.spacing
@@ -273,5 +290,18 @@ class PageRenderer(
     private fun drawCenteredText(canvas: Canvas, text: String, centerX: Float, centerY: Float, paint: Paint) {
         val width = paint.measureText(text)
         canvas.drawText(text, centerX - width / 2f, centerY, paint)
+    }
+
+    private fun drawImageSegment(canvas: Canvas, uriString: String, destRect: RectF) {
+        try {
+            val uri = Uri.parse(uriString)
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val bitmap = BitmapFactory.decodeStream(input)
+                bitmap?.let {
+                    canvas.drawBitmap(it, null, destRect, null)
+                    it.recycle()
+                }
+            }
+        } catch (_: Exception) {}
     }
 }
