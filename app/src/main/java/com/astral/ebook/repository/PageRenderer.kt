@@ -194,7 +194,7 @@ class PageRenderer(
             drawCenteredText(canvas, line, centerX, baseline, layoutEngine.headingPaint)
             baseline += layoutEngine.headingPaint.fontSpacing
         }
-        return (baseline - settings.margins.top) + layoutEngine.headingGap
+        return layoutEngine.calculateBodyHeadingHeight(contentWidth)
     }
 
     private fun drawMetadataPage(canvas: Canvas, pageWidth: Int, pageHeight: Int, pageNumber: Int) {

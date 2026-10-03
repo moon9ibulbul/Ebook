@@ -26,4 +26,26 @@ class DocumentParserTest {
         assertEquals(null, paragraph.alignment)
         assertEquals("Paragraf biasa tanpa alignment", paragraph.plainText())
     }
+
+    @Test
+    fun testParseStrikethroughWithSquareBrackets() {
+        val paragraph = DocumentParser.parseParagraphMarkup("Ini [s]dicoret[/s] biasa")
+        assertEquals(3, paragraph.runs.size)
+        assertEquals("Ini ", paragraph.runs[0].text)
+        assertEquals(false, paragraph.runs[0].strikeThrough)
+
+        assertEquals("dicoret", paragraph.runs[1].text)
+        assertEquals(true, paragraph.runs[1].strikeThrough)
+
+        assertEquals(" biasa", paragraph.runs[2].text)
+        assertEquals(false, paragraph.runs[2].strikeThrough)
+    }
+
+    @Test
+    fun testTildeIsParsedAsPlaintext() {
+        val paragraph = DocumentParser.parseParagraphMarkup("Ini ~tidak dicoret~ biasa")
+        assertEquals(1, paragraph.runs.size)
+        assertEquals("Ini ~tidak dicoret~ biasa", paragraph.runs[0].text)
+        assertEquals(false, paragraph.runs[0].strikeThrough)
+    }
 }
