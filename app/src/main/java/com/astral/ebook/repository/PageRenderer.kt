@@ -79,8 +79,9 @@ class PageRenderer(
                     line.segments.forEach { segment ->
                         if (segment.imageUri != null) {
                             val (imgW, imgH) = getImageDimensions(context, segment.imageUri, contentWidth)
-                            val imgTop = baselineY - imgH
-                            val imgRect = RectF(x, imgTop, x + imgW, baselineY)
+                            val vertOffset = (currentLineHeight - imgH) / 2f
+                            val imgTop = y + vertOffset
+                            val imgRect = RectF(x, imgTop, x + imgW, imgTop + imgH)
                             drawImageSegment(canvas, segment.imageUri, imgRect)
                             x += imgW
                         } else {
@@ -293,15 +294,40 @@ class PageRenderer(
     }
 
     private fun drawImageSegment(canvas: Canvas, uriString: String, destRect: RectF) {
+        var drew = false
         try {
-            val uri = Uri.parse(uriString)
-            context.contentResolver.openInputStream(uri)?.use { input ->
+            openImageStream(context, uriString)?.use { input ->
                 val bitmap = BitmapFactory.decodeStream(input)
                 bitmap?.let {
                     canvas.drawBitmap(it, null, destRect, null)
                     it.recycle()
+                    drew = true
                 }
             }
         } catch (_: Exception) {}
+
+        if (!drew) {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.LTGRAY
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(destRect, paint)
+
+            val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.GRAY
+                style = Paint.Style.STROKE
+                strokeWidth = 2f
+            }
+            canvas.drawRect(destRect, borderPaint)
+
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.DKGRAY
+                textSize = (12f * context.resources.displayMetrics.density).coerceAtMost(destRect.height() / 2f)
+                textAlign = Paint.Align.CENTER
+            }
+            val textX = destRect.centerX()
+            val textY = destRect.centerY() + (textPaint.textSize / 3f)
+            canvas.drawText("[Gambar]", textX, textY, textPaint)
+        }
     }
 }
