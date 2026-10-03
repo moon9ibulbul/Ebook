@@ -18,7 +18,8 @@ data class TextRunSegment(
     val bold: Boolean,
     val italic: Boolean,
     val underline: Boolean,
-    val strikeThrough: Boolean
+    val strikeThrough: Boolean,
+    val imageUri: String? = null
 )
 
 sealed interface LineContent {
@@ -251,19 +252,30 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
         }
 
         paragraph.runs.forEach { run ->
-            val words = run.text.split(Regex("""\s+""")).filter { it.isNotEmpty() }
-            for (word in words) {
-                var token = if (currentSegments.isEmpty()) word else " $word"
-                var paint = bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
+            if (run.imageUri != null) {
+                val token = if (currentSegments.isEmpty()) "[Gambar]" else " [Gambar]"
+                val paint = bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
                 var width = paint.measureText(token)
                 if (currentWidth + width > availableWidth && currentSegments.isNotEmpty()) {
                     flush()
-                    token = word
-                    paint = bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
-                    width = paint.measureText(token)
                 }
-                currentSegments += TextRunSegment(token, run.bold, run.italic, run.underline, run.strikeThrough)
+                currentSegments += TextRunSegment(token, run.bold, run.italic, run.underline, run.strikeThrough, run.imageUri)
                 currentWidth += width
+            } else {
+                val words = run.text.split(Regex("""\s+""")).filter { it.isNotEmpty() }
+                for (word in words) {
+                    var token = if (currentSegments.isEmpty()) word else " $word"
+                    var paint = bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
+                    var width = paint.measureText(token)
+                    if (currentWidth + width > availableWidth && currentSegments.isNotEmpty()) {
+                        flush()
+                        token = word
+                        paint = bodyPaint(run.bold, run.italic, run.underline, run.strikeThrough)
+                        width = paint.measureText(token)
+                    }
+                    currentSegments += TextRunSegment(token, run.bold, run.italic, run.underline, run.strikeThrough)
+                    currentWidth += width
+                }
             }
         }
         flush()

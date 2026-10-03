@@ -48,4 +48,33 @@ class DocumentParserTest {
         assertEquals("Ini ~tidak dicoret~ biasa", paragraph.runs[0].text)
         assertEquals(false, paragraph.runs[0].strikeThrough)
     }
+
+    @Test
+    fun testParseHtmlTags() {
+        val paragraph = DocumentParser.parseParagraphMarkup("<p align=\"center\">Ini <b>tebal</b> dan <i>miring</i> serta <u>garis bawah</u> dan <s>coret</s></p>")
+        assertEquals(ParagraphAlignment.Center, paragraph.alignment)
+        val textRuns = paragraph.runs.filter { it.text.isNotEmpty() }
+        assertEquals("Ini ", textRuns[0].text)
+        assertEquals("tebal", textRuns[1].text)
+        assertEquals(true, textRuns[1].bold)
+        assertEquals(" dan ", textRuns[2].text)
+        assertEquals("miring", textRuns[3].text)
+        assertEquals(true, textRuns[3].italic)
+        assertEquals(" serta ", textRuns[4].text)
+        assertEquals("garis bawah", textRuns[5].text)
+        assertEquals(true, textRuns[5].underline)
+        assertEquals(" dan ", textRuns[6].text)
+        assertEquals("coret", textRuns[7].text)
+        assertEquals(true, textRuns[7].strikeThrough)
+    }
+
+    @Test
+    fun testParseImageTag() {
+        val paragraph = DocumentParser.parseParagraphMarkup("Teks sebelum <img src=\"content://media/external/images/media/123\"/> teks sesudah")
+        assertEquals(3, paragraph.runs.size)
+        assertEquals("Teks sebelum ", paragraph.runs[0].text)
+        assertEquals("[Gambar]", paragraph.runs[1].text)
+        assertEquals("content://media/external/images/media/123", paragraph.runs[1].imageUri)
+        assertEquals(" teks sesudah", paragraph.runs[2].text)
+    }
 }

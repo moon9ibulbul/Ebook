@@ -1,24 +1,25 @@
 package com.astral.ebook.ui
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.ui.text.style.TextIndent
-import androidx.compose.ui.unit.em
-import com.astral.ebook.model.toEbookSettings
-import com.astral.ebook.model.EbookSettings
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FormatAlignCenter
 import androidx.compose.material.icons.filled.FormatAlignJustify
 import androidx.compose.material.icons.filled.FormatAlignLeft
@@ -27,6 +28,8 @@ import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,10 +47,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
@@ -56,15 +60,33 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import com.astral.ebook.model.EbookSettings
 import com.astral.ebook.model.ParagraphAlignment
+import com.astral.ebook.model.toEbookSettings
 import com.astral.ebook.ui.theme.AstralEbookTheme
 
 class MarkupVisualTransformation(
     private val settings: EbookSettings = EbookSettings()
 ) : VisualTransformation {
+    private var cachedText: String? = null
+    private var cachedTransformed: TransformedText? = null
+
     override fun filter(text: AnnotatedString): TransformedText {
         val original = text.text
+        if (original == cachedText && cachedTransformed != null) {
+            return cachedTransformed!!
+        }
+
+        val result = transform(original)
+        cachedText = original
+        cachedTransformed = result
+        return result
+    }
+
+    private fun transform(original: String): TransformedText {
         val N = original.length
         val builder = AnnotatedString.Builder()
         val origToTrans = IntArray(N + 1)
@@ -80,6 +102,12 @@ class MarkupVisualTransformation(
             ParagraphAlignment.Justify -> TextAlign.Justify
         }
 
+        val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val imgRegex = Regex("^<img\\s+[^>]*src=[\"']([^\"']+)[\"'][^>]*>|^\\[img](.*?)\\[/img]", RegexOption.IGNORE_CASE)
+
         for ((index, pText) in paragraphs.withIndex()) {
             val pEnd = currentParagraphStart + pText.length
             var working = pText
@@ -87,35 +115,43 @@ class MarkupVisualTransformation(
             var tagStartLen = 0
             var tagEndLen = 0
 
-            val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-            val bracketMatch = bracketAlign.find(working)
-            if (bracketMatch != null) {
-                val alignStr = bracketMatch.groupValues[1].lowercase()
-                alignment = when (alignStr) {
-                    "left" -> TextAlign.Left
-                    "right" -> TextAlign.Right
-                    "center" -> TextAlign.Center
-                    "justify" -> TextAlign.Justify
-                    else -> null
+            val htmlPMatch = htmlPAlign.find(working)
+            if (htmlPMatch != null) {
+                val alignStr = htmlPMatch.groupValues[1].ifEmpty { htmlPMatch.groupValues[2] }.lowercase()
+                alignment = parseTextAlign(alignStr)
+                val contentGroup = htmlPMatch.groups[3]
+                if (contentGroup != null) {
+                    tagStartLen = contentGroup.range.first
+                    tagEndLen = working.length - (contentGroup.range.last + 1)
+                    working = contentGroup.value
+                } else {
+                    working = htmlPMatch.groupValues[3]
                 }
-                tagStartLen = alignStr.length + 2
-                tagEndLen = alignStr.length + 3
-                working = bracketMatch.groupValues[2]
             } else {
-                val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                val attrMatch = attrAlign.find(working)
-                if (attrMatch != null) {
-                    val alignStr = attrMatch.groupValues[1].lowercase()
-                    alignment = when (alignStr) {
-                        "left" -> TextAlign.Left
-                        "right" -> TextAlign.Right
-                        "center" -> TextAlign.Center
-                        "justify" -> TextAlign.Justify
-                        else -> null
+                val centerMatch = centerTag.find(working)
+                if (centerMatch != null) {
+                    alignment = TextAlign.Center
+                    tagStartLen = 8
+                    tagEndLen = 9
+                    working = centerMatch.groupValues[1]
+                } else {
+                    val bracketMatch = bracketAlign.find(working)
+                    if (bracketMatch != null) {
+                        val alignStr = bracketMatch.groupValues[1].lowercase()
+                        alignment = parseTextAlign(alignStr)
+                        tagStartLen = alignStr.length + 2
+                        tagEndLen = alignStr.length + 3
+                        working = bracketMatch.groupValues[2]
+                    } else {
+                        val attrMatch = attrAlign.find(working)
+                        if (attrMatch != null) {
+                            val alignStr = attrMatch.groupValues[1].lowercase()
+                            alignment = parseTextAlign(alignStr)
+                            tagStartLen = alignStr.length + 8
+                            tagEndLen = 8
+                            working = attrMatch.groupValues[2]
+                        }
                     }
-                    tagStartLen = alignStr.length + 8
-                    tagEndLen = 8
-                    working = attrMatch.groupValues[2]
                 }
             }
 
@@ -130,49 +166,13 @@ class MarkupVisualTransformation(
             var underlineStart: Int? = null
             var strikeStart: Int? = null
 
-            fun toggleBold(transIdx: Int) {
-                if (boldStart == null) {
-                    boldStart = transIdx
-                } else {
-                    builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), boldStart!!, transIdx)
-                    boldStart = null
-                }
-            }
-
-            fun toggleItalic(transIdx: Int) {
-                if (italicStart == null) {
-                    italicStart = transIdx
-                } else {
-                    builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), italicStart!!, transIdx)
-                    italicStart = null
-                }
-            }
-
-            fun toggleUnderline(transIdx: Int) {
-                if (underlineStart == null) {
-                    underlineStart = transIdx
-                } else {
-                    builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), underlineStart!!, transIdx)
-                    underlineStart = null
-                }
-            }
-
-            fun toggleStrike(transIdx: Int) {
-                if (strikeStart == null) {
-                    strikeStart = transIdx
-                } else {
-                    builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), strikeStart!!, transIdx)
-                    strikeStart = null
-                }
-            }
-
             var i = 0
             while (i < working.length) {
                 val origIdx = currentParagraphStart + tagStartLen + i
 
                 if (working[i] == '\\') {
                     val escaped = working.getOrNull(i + 1)
-                    if (escaped != null && escaped in setOf('*', '_', '~', '[', '\\')) {
+                    if (escaped != null && escaped in setOf('*', '_', '~', '[', '<', '\\')) {
                         origToTrans[origIdx] = builder.length
                         val transIdx = builder.length
                         builder.append(escaped)
@@ -183,71 +183,168 @@ class MarkupVisualTransformation(
                     }
                 }
 
+                val imgMatch = imgRegex.find(working.substring(i))
+                if (imgMatch != null && imgMatch.range.first == 0) {
+                    val matchLen = imgMatch.value.length
+                    for (k in 0 until matchLen) {
+                        origToTrans[origIdx + k] = builder.length
+                    }
+                    val placeholder = "[Gambar]"
+                    val imgTransStart = builder.length
+                    builder.append(placeholder)
+                    builder.addStyle(SpanStyle(color = Color(0xFF1976D2), fontWeight = FontWeight.Bold), imgTransStart, builder.length)
+                    for (k in 0 until placeholder.length) {
+                        transToOrigList.add(origIdx)
+                    }
+                    i += matchLen
+                    continue
+                }
+
                 when {
-                    working.startsWith("***", i) -> {
-                        origToTrans[origIdx] = builder.length
-                        origToTrans[origIdx + 1] = builder.length
-                        origToTrans[origIdx + 2] = builder.length
-                        toggleBold(builder.length)
-                        toggleItalic(builder.length)
+                    // HTML tags
+                    working.regionMatches(i, "<b>", 0, 3, ignoreCase = true) -> {
+                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
+                        if (boldStart == null) boldStart = builder.length
                         i += 3
                     }
-                    working.startsWith("**", i) -> {
-                        origToTrans[origIdx] = builder.length
-                        origToTrans[origIdx + 1] = builder.length
-                        toggleBold(builder.length)
-                        i += 2
+                    working.regionMatches(i, "<strong>", 0, 8, ignoreCase = true) -> {
+                        for (k in 0 until 8) origToTrans[origIdx + k] = builder.length
+                        if (boldStart == null) boldStart = builder.length
+                        i += 8
                     }
-                    working.startsWith("__", i) -> {
-                        origToTrans[origIdx] = builder.length
-                        origToTrans[origIdx + 1] = builder.length
-                        toggleUnderline(builder.length)
-                        i += 2
+                    working.regionMatches(i, "</b>", 0, 4, ignoreCase = true) -> {
+                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                        boldStart?.let {
+                            builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
+                            boldStart = null
+                        }
+                        i += 4
                     }
-                    working.regionMatches(i, "[u]", 0, 3, ignoreCase = true) -> {
-                        origToTrans[origIdx] = builder.length
-                        origToTrans[origIdx + 1] = builder.length
-                        origToTrans[origIdx + 2] = builder.length
+                    working.regionMatches(i, "</strong>", 0, 9, ignoreCase = true) -> {
+                        for (k in 0 until 9) origToTrans[origIdx + k] = builder.length
+                        boldStart?.let {
+                            builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
+                            boldStart = null
+                        }
+                        i += 9
+                    }
+                    working.regionMatches(i, "<i>", 0, 3, ignoreCase = true) -> {
+                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
+                        if (italicStart == null) italicStart = builder.length
+                        i += 3
+                    }
+                    working.regionMatches(i, "<em>", 0, 4, ignoreCase = true) -> {
+                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                        if (italicStart == null) italicStart = builder.length
+                        i += 4
+                    }
+                    working.regionMatches(i, "</i>", 0, 4, ignoreCase = true) -> {
+                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                        italicStart?.let {
+                            builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
+                            italicStart = null
+                        }
+                        i += 4
+                    }
+                    working.regionMatches(i, "</em>", 0, 5, ignoreCase = true) -> {
+                        for (k in 0 until 5) origToTrans[origIdx + k] = builder.length
+                        italicStart?.let {
+                            builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
+                            italicStart = null
+                        }
+                        i += 5
+                    }
+                    working.regionMatches(i, "<u>", 0, 3, ignoreCase = true) -> {
+                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
                         if (underlineStart == null) underlineStart = builder.length
                         i += 3
                     }
-                    working.regionMatches(i, "[/u]", 0, 4, ignoreCase = true) -> {
-                        origToTrans[origIdx] = builder.length
-                        origToTrans[origIdx + 1] = builder.length
-                        origToTrans[origIdx + 2] = builder.length
-                        origToTrans[origIdx + 3] = builder.length
-                        if (underlineStart != null) {
-                            builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), underlineStart!!, builder.length)
+                    working.regionMatches(i, "</u>", 0, 4, ignoreCase = true) -> {
+                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                        underlineStart?.let {
+                            builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, builder.length)
                             underlineStart = null
                         }
                         i += 4
                     }
+                    working.regionMatches(i, "<s>", 0, 3, ignoreCase = true) ||
+                    working.regionMatches(i, "<del>", 0, 5, ignoreCase = true) ||
+                    working.regionMatches(i, "<strike>", 0, 8, ignoreCase = true) -> {
+                        val len = when {
+                            working.regionMatches(i, "<s>", 0, 3, ignoreCase = true) -> 3
+                            working.regionMatches(i, "<del>", 0, 5, ignoreCase = true) -> 5
+                            else -> 8
+                        }
+                        for (k in 0 until len) origToTrans[origIdx + k] = builder.length
+                        if (strikeStart == null) strikeStart = builder.length
+                        i += len
+                    }
+                    working.regionMatches(i, "</s>", 0, 4, ignoreCase = true) ||
+                    working.regionMatches(i, "</del>", 0, 6, ignoreCase = true) ||
+                    working.regionMatches(i, "</strike>", 0, 9, ignoreCase = true) -> {
+                        val len = when {
+                            working.regionMatches(i, "</s>", 0, 4, ignoreCase = true) -> 4
+                            working.regionMatches(i, "</del>", 0, 6, ignoreCase = true) -> 6
+                            else -> 9
+                        }
+                        for (k in 0 until len) origToTrans[origIdx + k] = builder.length
+                        strikeStart?.let {
+                            builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, builder.length)
+                            strikeStart = null
+                        }
+                        i += len
+                    }
+                    // Legacy tags
+                    working.startsWith("***", i) -> {
+                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
+                        val bStart = boldStart
+                        if (bStart == null) boldStart = builder.length else { builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), bStart, builder.length); boldStart = null }
+                        val itStart = italicStart
+                        if (itStart == null) italicStart = builder.length else { builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), itStart, builder.length); italicStart = null }
+                        i += 3
+                    }
+                    working.startsWith("**", i) -> {
+                        for (k in 0 until 2) origToTrans[origIdx + k] = builder.length
+                        val bStart = boldStart
+                        if (bStart == null) boldStart = builder.length else { builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), bStart, builder.length); boldStart = null }
+                        i += 2
+                    }
+                    working.startsWith("__", i) -> {
+                        for (k in 0 until 2) origToTrans[origIdx + k] = builder.length
+                        val uStart = underlineStart
+                        if (uStart == null) underlineStart = builder.length else { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), uStart, builder.length); underlineStart = null }
+                        i += 2
+                    }
+                    working.regionMatches(i, "[u]", 0, 3, ignoreCase = true) -> {
+                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
+                        if (underlineStart == null) underlineStart = builder.length
+                        i += 3
+                    }
+                    working.regionMatches(i, "[/u]", 0, 4, ignoreCase = true) -> {
+                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                        underlineStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, builder.length); underlineStart = null }
+                        i += 4
+                    }
                     working.regionMatches(i, "[s]", 0, 3, ignoreCase = true) -> {
-                        origToTrans[origIdx] = builder.length
-                        origToTrans[origIdx + 1] = builder.length
-                        origToTrans[origIdx + 2] = builder.length
+                        for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
                         if (strikeStart == null) strikeStart = builder.length
                         i += 3
                     }
                     working.regionMatches(i, "[/s]", 0, 4, ignoreCase = true) -> {
-                        origToTrans[origIdx] = builder.length
-                        origToTrans[origIdx + 1] = builder.length
-                        origToTrans[origIdx + 2] = builder.length
-                        origToTrans[origIdx + 3] = builder.length
-                        if (strikeStart != null) {
-                            builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), strikeStart!!, builder.length)
-                            strikeStart = null
-                        }
+                        for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                        strikeStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, builder.length); strikeStart = null }
                         i += 4
                     }
                     working[i] == '_' -> {
                         origToTrans[origIdx] = builder.length
-                        toggleUnderline(builder.length)
+                        val uStart = underlineStart
+                        if (uStart == null) underlineStart = builder.length else { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), uStart, builder.length); underlineStart = null }
                         i++
                     }
                     working[i] == '*' -> {
                         origToTrans[origIdx] = builder.length
-                        toggleItalic(builder.length)
+                        val itStart = italicStart
+                        if (itStart == null) italicStart = builder.length else { builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), itStart, builder.length); italicStart = null }
                         i++
                     }
                     else -> {
@@ -261,18 +358,10 @@ class MarkupVisualTransformation(
             }
 
             val pTransEnd = builder.length
-            if (boldStart != null) {
-                builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), boldStart!!, pTransEnd)
-            }
-            if (italicStart != null) {
-                builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), italicStart!!, pTransEnd)
-            }
-            if (underlineStart != null) {
-                builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), underlineStart!!, pTransEnd)
-            }
-            if (strikeStart != null) {
-                builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), strikeStart!!, pTransEnd)
-            }
+            boldStart?.let { builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, pTransEnd) }
+            italicStart?.let { builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, pTransEnd) }
+            underlineStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, pTransEnd) }
+            strikeStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, pTransEnd) }
 
             for (origIdx in (pEnd - tagEndLen) until pEnd) {
                 origToTrans[origIdx] = pTransEnd
@@ -329,6 +418,14 @@ class MarkupVisualTransformation(
 
         return TransformedText(builder.toAnnotatedString(), offsetMapping)
     }
+
+    private fun parseTextAlign(str: String): TextAlign? = when (str.lowercase()) {
+        "left" -> TextAlign.Left
+        "center" -> TextAlign.Center
+        "right" -> TextAlign.Right
+        "justify" -> TextAlign.Justify
+        else -> null
+    }
 }
 
 class VisualEditorActivity : ComponentActivity() {
@@ -367,20 +464,42 @@ fun VisualEditorScreen(
     onSave: (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     var textFieldValue by remember {
         mutableStateOf(TextFieldValue(initialContent, TextRange(initialContent.length)))
+    }
+    var isCodeMode by remember { mutableStateOf(false) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            val start = textFieldValue.selection.min
+            val end = textFieldValue.selection.max
+            val text = textFieldValue.text
+            val imgTag = "<img src=\"$it\"/>"
+            val newText = text.substring(0, start) + imgTag + text.substring(end)
+            val newSelection = TextRange(start + imgTag.length)
+            textFieldValue = TextFieldValue(newText, newSelection)
+        }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Visual Editor") },
+                title = { Text(if (isCodeMode) "Code Editor" else "Visual Editor") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
+                    IconButton(onClick = { isCodeMode = !isCodeMode }) {
+                        Icon(
+                            imageVector = if (isCodeMode) Icons.Default.Visibility else Icons.Default.Code,
+                            contentDescription = if (isCodeMode) "Visual Mode" else "Code Mode"
+                        )
+                    }
                     IconButton(onClick = { onSave(textFieldValue.text) }) {
                         Icon(Icons.Default.Check, contentDescription = "Save")
                     }
@@ -411,7 +530,6 @@ fun VisualEditorScreen(
                     val text = textFieldValue.text
                     val tag = align.name.lowercase()
 
-                    // 1. Find paragraph boundaries
                     var paraStart = start
                     while (paraStart > 0 && text[paraStart - 1] != '\n') {
                         paraStart--
@@ -423,7 +541,8 @@ fun VisualEditorScreen(
 
                     val paraText = text.substring(paraStart, paraEnd)
 
-                    // 2. Strip existing alignment tags
+                    val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                    val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
                     val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
                     val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
@@ -432,6 +551,18 @@ fun VisualEditorScreen(
 
                     var matched = true
                     while (matched) {
+                        val htmlPMatch = htmlPAlign.find(workingPara)
+                        if (htmlPMatch != null) {
+                            existingAlign = htmlPMatch.groupValues[1].ifEmpty { htmlPMatch.groupValues[2] }.lowercase()
+                            workingPara = htmlPMatch.groupValues[3].trim()
+                            continue
+                        }
+                        val centerMatch = centerTag.find(workingPara)
+                        if (centerMatch != null) {
+                            existingAlign = "center"
+                            workingPara = centerMatch.groupValues[1].trim()
+                            continue
+                        }
                         val bracketMatch = bracketAlign.find(workingPara)
                         if (bracketMatch != null) {
                             existingAlign = bracketMatch.groupValues[1].lowercase()
@@ -447,27 +578,44 @@ fun VisualEditorScreen(
                         matched = false
                     }
 
-                    // 3. Apply new alignment or toggle if same alignment is clicked
                     val newParaText = if (existingAlign == tag) {
                         workingPara
                     } else {
-                        "[$tag]$workingPara[/$tag]"
+                        "<p align=\"$tag\">$workingPara</p>"
                     }
 
-                    // 4. Construct the new text and set the selection
                     val newText = text.substring(0, paraStart) + newParaText + text.substring(paraEnd)
                     val newSelection = TextRange(paraStart, paraStart + newParaText.length)
                     textFieldValue = TextFieldValue(newText, newSelection)
+                },
+                onAddImage = {
+                    imagePickerLauncher.launch("image/*")
                 }
             )
 
+            val visualTransform = remember(settings) { MarkupVisualTransformation(settings) }
+
             TextField(
                 value = textFieldValue,
-                onValueChange = { textFieldValue = it },
+                onValueChange = { incoming ->
+                    val insertedLength = incoming.text.length - textFieldValue.text.length
+                    if (insertedLength > 1) {
+                        val clipboardHtml = getClipboardHtml(context)
+                        if (!clipboardHtml.isNullOrBlank()) {
+                            val selectionLen = (textFieldValue.selection.max - textFieldValue.selection.min).coerceAtLeast(0)
+                            val pasteStart = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
+                            val pasteEndInOrig = (pasteStart + selectionLen).coerceIn(0, textFieldValue.text.length)
+                            val newText = textFieldValue.text.substring(0, pasteStart) + clipboardHtml + textFieldValue.text.substring(pasteEndInOrig)
+                            textFieldValue = TextFieldValue(newText, TextRange(pasteStart + clipboardHtml.length))
+                            return@TextField
+                        }
+                    }
+                    textFieldValue = incoming
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                visualTransformation = remember(settings) { MarkupVisualTransformation(settings) },
+                visualTransformation = if (isCodeMode) VisualTransformation.None else visualTransform,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -480,10 +628,27 @@ fun VisualEditorScreen(
     }
 }
 
+private fun getClipboardHtml(context: Context): String? {
+    return try {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val item = clipboard?.primaryClip?.getItemAt(0)
+        val htmlText = item?.htmlText
+        if (!htmlText.isNullOrBlank()) {
+            val bodyMatch = Regex("<body[^>]*>(.*?)</body>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(htmlText)
+            bodyMatch?.groupValues?.get(1)?.trim() ?: htmlText
+        } else {
+            null
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
 @Composable
 fun FormattingToolbar(
     onApplyFormatting: (String, String) -> Unit,
-    onSetAlignment: (ParagraphAlignment) -> Unit
+    onSetAlignment: (ParagraphAlignment) -> Unit,
+    onAddImage: () -> Unit
 ) {
     Surface(
         tonalElevation = 2.dp,
@@ -495,10 +660,11 @@ fun FormattingToolbar(
                 .fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            ToolbarButton(Icons.Default.FormatBold, "Bold") { onApplyFormatting("**", "**") }
-            ToolbarButton(Icons.Default.FormatItalic, "Italic") { onApplyFormatting("*", "*") }
-            ToolbarButton(Icons.Default.FormatUnderlined, "Underline") { onApplyFormatting("__", "__") }
-            ToolbarButton(Icons.Default.FormatStrikethrough, "Strikethrough") { onApplyFormatting("[s]", "[/s]") }
+            ToolbarButton(Icons.Default.FormatBold, "Bold") { onApplyFormatting("<b>", "</b>") }
+            ToolbarButton(Icons.Default.FormatItalic, "Italic") { onApplyFormatting("<i>", "</i>") }
+            ToolbarButton(Icons.Default.FormatUnderlined, "Underline") { onApplyFormatting("<u>", "</u>") }
+            ToolbarButton(Icons.Default.FormatStrikethrough, "Strikethrough") { onApplyFormatting("<s>", "</s>") }
+            ToolbarButton(Icons.Default.Image, "Image") { onAddImage() }
             ToolbarButton(Icons.Default.FormatAlignLeft, "Left") { onSetAlignment(ParagraphAlignment.Left) }
             ToolbarButton(Icons.Default.FormatAlignCenter, "Center") { onSetAlignment(ParagraphAlignment.Center) }
             ToolbarButton(Icons.Default.FormatAlignRight, "Right") { onSetAlignment(ParagraphAlignment.Right) }

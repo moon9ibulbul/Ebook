@@ -32,7 +32,8 @@ data class TextRun(
     val bold: Boolean = false,
     val italic: Boolean = false,
     val underline: Boolean = false,
-    val strikeThrough: Boolean = false
+    val strikeThrough: Boolean = false,
+    val imageUri: String? = null
 )
 
 object DocumentParser {
@@ -96,19 +97,38 @@ object DocumentParser {
         if (source.isBlank()) return FormattedParagraph(listOf(TextRun("")))
         var working = source.trim('\n', '\r')
         var alignment: ParagraphAlignment? = null
+
+        // Strip HTML alignment tags (<p align="...">, <p style="text-align:...">, <center>, <div align="...">)
+        val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val bracketAlign = Regex("^\\[(left|right|center|justify)](.*)\\[/\\1]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val bracketMatch = bracketAlign.find(working)
-        if (bracketMatch != null) {
-            alignment = bracketMatch.groupValues[1].toParagraphAlignment()
-            working = bracketMatch.groupValues[2].trim()
+        val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+
+        val htmlPMatch = htmlPAlign.find(working)
+        if (htmlPMatch != null) {
+            val alignStr = htmlPMatch.groupValues[1].ifEmpty { htmlPMatch.groupValues[2] }
+            alignment = alignStr.toParagraphAlignment()
+            working = htmlPMatch.groupValues[3].trim()
         } else {
-            val attrAlign = Regex("^\\[align=(left|right|center|justify)](.*)\\[/align]$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-            val attrMatch = attrAlign.find(working)
-            if (attrMatch != null) {
-                alignment = attrMatch.groupValues[1].toParagraphAlignment()
-                working = attrMatch.groupValues[2].trim()
+            val centerMatch = centerTag.find(working)
+            if (centerMatch != null) {
+                alignment = ParagraphAlignment.Center
+                working = centerMatch.groupValues[1].trim()
+            } else {
+                val bracketMatch = bracketAlign.find(working)
+                if (bracketMatch != null) {
+                    alignment = bracketMatch.groupValues[1].toParagraphAlignment()
+                    working = bracketMatch.groupValues[2].trim()
+                } else {
+                    val attrMatch = attrAlign.find(working)
+                    if (attrMatch != null) {
+                        alignment = attrMatch.groupValues[1].toParagraphAlignment()
+                        working = attrMatch.groupValues[2].trim()
+                    }
+                }
             }
         }
+
         val runs = mutableListOf<TextRun>()
         val buffer = StringBuilder()
         var bold = false
@@ -116,22 +136,94 @@ object DocumentParser {
         var underline = false
         var strike = false
         var index = 0
+
         fun flush() {
             if (buffer.isNotEmpty()) {
-                runs += TextRun(buffer.toString(), bold, italic, underline, strike)
+                runs += TextRun(text = buffer.toString(), bold = bold, italic = italic, underline = underline, strikeThrough = strike)
                 buffer.clear()
             }
         }
+
+        val imgRegex = Regex("^<img\\s+[^>]*src=[\"']([^\"']+)[\"'][^>]*>|^\\[img](.*?)\\[/img]", RegexOption.IGNORE_CASE)
+
         while (index < working.length) {
             if (working[index] == '\\') {
                 val escaped = working.getOrNull(index + 1)
-                if (escaped != null && escaped in setOf('*', '_', '~', '[', '\\')) {
+                if (escaped != null && escaped in setOf('*', '_', '~', '[', '<', '\\')) {
                     buffer.append(escaped)
                     index += 2
                     continue
                 }
             }
+
+            val imgMatch = imgRegex.find(working.substring(index))
+            if (imgMatch != null && imgMatch.range.first == 0) {
+                flush()
+                val uri = imgMatch.groupValues[1].ifEmpty { imgMatch.groupValues[2] }
+                runs += TextRun(text = "[Gambar]", bold = bold, italic = italic, underline = underline, strikeThrough = strike, imageUri = uri)
+                index += imgMatch.value.length
+                continue
+            }
+
             when {
+                // HTML tags
+                working.regionMatches(index, "<b>", 0, 3, ignoreCase = true) ||
+                working.regionMatches(index, "<strong>", 0, 8, ignoreCase = true) -> {
+                    flush()
+                    bold = true
+                    index += if (working.regionMatches(index, "<b>", 0, 3, ignoreCase = true)) 3 else 8
+                }
+                working.regionMatches(index, "</b>", 0, 4, ignoreCase = true) ||
+                working.regionMatches(index, "</strong>", 0, 9, ignoreCase = true) -> {
+                    flush()
+                    bold = false
+                    index += if (working.regionMatches(index, "</b>", 0, 4, ignoreCase = true)) 4 else 9
+                }
+                working.regionMatches(index, "<i>", 0, 3, ignoreCase = true) ||
+                working.regionMatches(index, "<em>", 0, 4, ignoreCase = true) -> {
+                    flush()
+                    italic = true
+                    index += if (working.regionMatches(index, "<i>", 0, 3, ignoreCase = true)) 3 else 4
+                }
+                working.regionMatches(index, "</i>", 0, 4, ignoreCase = true) ||
+                working.regionMatches(index, "</em>", 0, 5, ignoreCase = true) -> {
+                    flush()
+                    italic = false
+                    index += if (working.regionMatches(index, "</i>", 0, 4, ignoreCase = true)) 4 else 5
+                }
+                working.regionMatches(index, "<u>", 0, 3, ignoreCase = true) -> {
+                    flush()
+                    underline = true
+                    index += 3
+                }
+                working.regionMatches(index, "</u>", 0, 4, ignoreCase = true) -> {
+                    flush()
+                    underline = false
+                    index += 4
+                }
+                working.regionMatches(index, "<s>", 0, 3, ignoreCase = true) ||
+                working.regionMatches(index, "<del>", 0, 5, ignoreCase = true) ||
+                working.regionMatches(index, "<strike>", 0, 8, ignoreCase = true) -> {
+                    flush()
+                    strike = true
+                    index += when {
+                        working.regionMatches(index, "<s>", 0, 3, ignoreCase = true) -> 3
+                        working.regionMatches(index, "<del>", 0, 5, ignoreCase = true) -> 5
+                        else -> 8
+                    }
+                }
+                working.regionMatches(index, "</s>", 0, 4, ignoreCase = true) ||
+                working.regionMatches(index, "</del>", 0, 6, ignoreCase = true) ||
+                working.regionMatches(index, "</strike>", 0, 9, ignoreCase = true) -> {
+                    flush()
+                    strike = false
+                    index += when {
+                        working.regionMatches(index, "</s>", 0, 4, ignoreCase = true) -> 4
+                        working.regionMatches(index, "</del>", 0, 6, ignoreCase = true) -> 6
+                        else -> 9
+                    }
+                }
+                // Legacy tags
                 working.startsWith("***", index) -> {
                     flush()
                     bold = !bold
