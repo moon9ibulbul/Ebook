@@ -98,5 +98,7 @@ class DocumentParserTest {
 
         assertEquals(largeText, largeResult.text.text)
         org.junit.Assert.assertTrue("Transformation duration should be under 500ms for 10,000 lines, was $duration ms", duration < 500)
+        // Paragraph 0 gets 1 style to skip indent after heading, remaining 9,999 paragraphs get 0 styles
+        assertEquals(1, largeResult.text.paragraphStyles.size)
     }
 }

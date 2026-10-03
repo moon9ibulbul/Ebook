@@ -112,6 +112,10 @@ class MarkupVisualTransformation(
             ParagraphAlignment.Justify -> TextAlign.Justify
         }
 
+        val defaultAllowsIndent = defaultAlignment == TextAlign.Left || defaultAlignment == TextAlign.Justify
+        val defaultIndentEm = settings.paragraphOptions.firstLineIndentEm
+        val defaultHasIndent = defaultAllowsIndent && defaultIndentEm > 0f
+
         var currentParagraphStart = 0
         var paragraphIndex = 0
 
@@ -147,21 +151,13 @@ class MarkupVisualTransformation(
 
                 val pTransEndForPara = builder.length
 
-                val actualAlignment = defaultAlignment
-                val allowsIndent = actualAlignment == TextAlign.Left || actualAlignment == TextAlign.Justify
-                val applyIndent = !(paragraphIndex == 0 && settings.paragraphOptions.skipIndentAfterHeading) && allowsIndent
+                val shouldSkipIndent = paragraphIndex == 0 && settings.paragraphOptions.skipIndentAfterHeading && defaultHasIndent
 
-                val textIndent = if (applyIndent) {
-                    TextIndent(firstLine = settings.paragraphOptions.firstLineIndentEm.em)
-                } else {
-                    null
-                }
-
-                if (textIndent != null) {
+                if (shouldSkipIndent) {
                     builder.addStyle(
                         ParagraphStyle(
-                            textAlign = actualAlignment,
-                            textIndent = textIndent
+                            textAlign = defaultAlignment,
+                            textIndent = TextIndent.None
                         ),
                         pTransStart,
                         pTransEndForPara
@@ -381,16 +377,19 @@ class MarkupVisualTransformation(
                 val applyIndent = !(paragraphIndex == 0 && settings.paragraphOptions.skipIndentAfterHeading) && allowsIndent
 
                 val textIndent = if (applyIndent) {
-                    TextIndent(firstLine = settings.paragraphOptions.firstLineIndentEm.em)
+                    if (defaultHasIndent) null else TextIndent(firstLine = defaultIndentEm.em)
                 } else {
-                    null
+                    if (defaultHasIndent) TextIndent.None else null
                 }
 
-                if (alignment != null || textIndent != null) {
+                val isDifferentAlignment = alignment != null && alignment != defaultAlignment
+                val isDifferentIndent = textIndent != null
+
+                if (isDifferentAlignment || isDifferentIndent) {
                     builder.addStyle(
                         ParagraphStyle(
-                            textAlign = alignment ?: TextAlign.Unspecified,
-                            textIndent = textIndent
+                            textAlign = alignment ?: defaultAlignment,
+                            textIndent = textIndent ?: if (allowsIndent && defaultHasIndent) TextIndent(firstLine = defaultIndentEm.em) else TextIndent.None
                         ),
                         pTransStart,
                         pTransEndForPara
@@ -582,6 +581,25 @@ fun VisualEditorScreen(
 
             val visualTransform = remember(settings) { MarkupVisualTransformation(settings) }
 
+            val defaultAlignment = when (settings.paragraphOptions.alignment) {
+                ParagraphAlignment.Left -> TextAlign.Left
+                ParagraphAlignment.Center -> TextAlign.Center
+                ParagraphAlignment.Right -> TextAlign.Right
+                ParagraphAlignment.Justify -> TextAlign.Justify
+            }
+            val defaultAllowsIndent = defaultAlignment == TextAlign.Left || defaultAlignment == TextAlign.Justify
+            val defaultIndentEm = settings.paragraphOptions.firstLineIndentEm
+            val defaultTextIndent = if (defaultAllowsIndent && defaultIndentEm > 0f) {
+                TextIndent(firstLine = defaultIndentEm.em)
+            } else {
+                null
+            }
+
+            val editorTextStyle = androidx.compose.material3.LocalTextStyle.current.copy(
+                textAlign = defaultAlignment,
+                textIndent = defaultTextIndent
+            )
+
             TextField(
                 value = textFieldValue,
                 onValueChange = { incoming ->
@@ -602,6 +620,7 @@ fun VisualEditorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
+                textStyle = if (isCodeMode) androidx.compose.material3.LocalTextStyle.current else editorTextStyle,
                 visualTransformation = if (isCodeMode) VisualTransformation.None else visualTransform,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
