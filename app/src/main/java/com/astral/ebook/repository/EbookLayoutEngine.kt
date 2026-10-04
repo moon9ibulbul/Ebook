@@ -387,12 +387,39 @@ data class FooterContent(val left: String, val right: String)
 
 private fun ParagraphAlignment.allowsIndent(): Boolean = this == ParagraphAlignment.Left || this == ParagraphAlignment.Justify
 
+fun openImageStream(context: Context, uriString: String): java.io.InputStream? {
+    if (uriString.isBlank()) return null
+    return try {
+        when {
+            uriString.startsWith("http://", ignoreCase = true) || uriString.startsWith("https://", ignoreCase = true) -> {
+                java.net.URL(uriString).openStream()
+            }
+            uriString.startsWith("content://", ignoreCase = true) -> {
+                context.contentResolver.openInputStream(Uri.parse(uriString))
+            }
+            uriString.startsWith("file://", ignoreCase = true) -> {
+                val path = Uri.parse(uriString).path ?: ""
+                java.io.File(path).inputStream()
+            }
+            else -> {
+                val file = java.io.File(uriString)
+                if (file.exists() && file.isFile) {
+                    file.inputStream()
+                } else {
+                    context.contentResolver.openInputStream(Uri.parse(uriString))
+                }
+            }
+        }
+    } catch (_: Throwable) {
+        null
+    }
+}
+
 internal fun getImageDimensions(context: Context, uriString: String, maxAvailableWidth: Float): Pair<Float, Float> {
     val defaultWidth = minOf(300f * context.resources.displayMetrics.density, maxAvailableWidth)
     val defaultHeight = defaultWidth * 0.75f
     return try {
-        val uri = Uri.parse(uriString)
-        context.contentResolver.openInputStream(uri)?.use { input ->
+        openImageStream(context, uriString)?.use { input ->
             val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
             android.graphics.BitmapFactory.decodeStream(input, null, options)
             if (options.outWidth > 0 && options.outHeight > 0) {

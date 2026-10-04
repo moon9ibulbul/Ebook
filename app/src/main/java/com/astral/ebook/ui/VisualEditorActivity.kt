@@ -3,36 +3,56 @@ package com.astral.ebook.ui
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FindReplace
 import androidx.compose.material.icons.filled.FormatAlignCenter
 import androidx.compose.material.icons.filled.FormatAlignJustify
-import androidx.compose.material.icons.filled.FormatAlignLeft
-import androidx.compose.material.icons.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.VerticalAlignBottom
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,13 +60,20 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
@@ -63,10 +90,15 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import com.astral.ebook.model.EbookSettings
 import com.astral.ebook.model.ParagraphAlignment
 import com.astral.ebook.model.toEbookSettings
+import com.astral.ebook.repository.openImageStream
 import com.astral.ebook.ui.theme.AstralEbookTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val HTML_P_ALIGN_REGEX = Regex(
     "^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$",
@@ -238,7 +270,7 @@ class MarkupVisualTransformation(
                             for (k in 0 until matchLen) {
                                 origToTrans[origIdx + k] = builder.length
                             }
-                            val placeholder = "[Gambar]"
+                            val placeholder = "🖼️ [Gambar]"
                             val imgTransStart = builder.length
                             builder.append(placeholder)
                             builder.addStyle(SpanStyle(color = Color(0xFF1976D2), fontWeight = FontWeight.Bold), imgTransStart, builder.length)
@@ -470,10 +502,74 @@ fun VisualEditorScreen(
     }
     var isCodeMode by remember { mutableStateOf(false) }
 
+    // Scroll state and Coroutine Scope
+    val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+
+    // Find and Replace states
+    var isSearchVisible by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var replaceQuery by remember { mutableStateOf("") }
+    var currentMatchIndex by remember { mutableIntStateOf(0) }
+
+    val matches = remember(textFieldValue.text, searchQuery) {
+        if (searchQuery.isEmpty()) {
+            emptyList()
+        } else {
+            try {
+                Regex.escape(searchQuery).toRegex(RegexOption.IGNORE_CASE)
+                    .findAll(textFieldValue.text)
+                    .map { it.range }
+                    .toList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+    }
+
+    fun highlightMatch(index: Int) {
+        if (matches.isNotEmpty() && index in matches.indices) {
+            val range = matches[index]
+            textFieldValue = textFieldValue.copy(
+                selection = TextRange(range.first, range.last + 1)
+            )
+        }
+    }
+
+    LaunchedEffect(matches, currentMatchIndex) {
+        if (matches.isNotEmpty()) {
+            val safeIdx = currentMatchIndex.coerceIn(0, matches.lastIndex)
+            if (safeIdx != currentMatchIndex) {
+                currentMatchIndex = safeIdx
+            }
+            highlightMatch(safeIdx)
+        }
+    }
+
+    fun scrollToTop() {
+        coroutineScope.launch {
+            scrollState.animateScrollTo(0)
+        }
+        textFieldValue = textFieldValue.copy(selection = TextRange(0))
+    }
+
+    fun scrollToBottom() {
+        coroutineScope.launch {
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+        textFieldValue = textFieldValue.copy(selection = TextRange(textFieldValue.text.length))
+    }
+
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
             val start = textFieldValue.selection.min
             val end = textFieldValue.selection.max
             val text = textFieldValue.text
@@ -490,10 +586,19 @@ fun VisualEditorScreen(
                 title = { Text(if (isCodeMode) "Code Editor" else "Visual Editor") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
+                    IconButton(onClick = { scrollToTop() }) {
+                        Icon(Icons.Default.VerticalAlignTop, contentDescription = "Scroll to Top")
+                    }
+                    IconButton(onClick = { scrollToBottom() }) {
+                        Icon(Icons.Default.VerticalAlignBottom, contentDescription = "Scroll to Bottom")
+                    }
+                    IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
+                        Icon(Icons.Default.FindReplace, contentDescription = "Find & Replace")
+                    }
                     IconButton(onClick = { isCodeMode = !isCodeMode }) {
                         Icon(
                             imageVector = if (isCodeMode) Icons.Default.Visibility else Icons.Default.Code,
@@ -513,6 +618,47 @@ fun VisualEditorScreen(
                 .fillMaxSize()
                 .imePadding()
         ) {
+            if (isSearchVisible) {
+                FindReplaceBar(
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = {
+                        searchQuery = it
+                        currentMatchIndex = 0
+                    },
+                    replaceQuery = replaceQuery,
+                    onReplaceQueryChange = { replaceQuery = it },
+                    matchCount = matches.size,
+                    currentMatchIndex = currentMatchIndex,
+                    onNextMatch = {
+                        if (matches.isNotEmpty()) {
+                            currentMatchIndex = (currentMatchIndex + 1) % matches.size
+                        }
+                    },
+                    onPrevMatch = {
+                        if (matches.isNotEmpty()) {
+                            currentMatchIndex = if (currentMatchIndex - 1 < 0) matches.lastIndex else currentMatchIndex - 1
+                        }
+                    },
+                    onReplace = {
+                        if (matches.isNotEmpty() && currentMatchIndex in matches.indices) {
+                            val range = matches[currentMatchIndex]
+                            val origText = textFieldValue.text
+                            val newText = origText.substring(0, range.first) + replaceQuery + origText.substring(range.last + 1)
+                            val newSelectionStart = (range.first + replaceQuery.length).coerceAtMost(newText.length)
+                            textFieldValue = TextFieldValue(newText, TextRange(newSelectionStart))
+                        }
+                    },
+                    onReplaceAll = {
+                        if (searchQuery.isNotEmpty() && matches.isNotEmpty()) {
+                            val newText = textFieldValue.text.replace(searchQuery, replaceQuery, ignoreCase = true)
+                            textFieldValue = TextFieldValue(newText, TextRange(newText.length.coerceAtMost(textFieldValue.selection.start)))
+                            currentMatchIndex = 0
+                        }
+                    },
+                    onClose = { isSearchVisible = false }
+                )
+            }
+
             FormattingToolbar(
                 onApplyFormatting = { prefix, suffix ->
                     val start = textFieldValue.selection.min
@@ -575,7 +721,7 @@ fun VisualEditorScreen(
                     textFieldValue = TextFieldValue(newText, newSelection)
                 },
                 onAddImage = {
-                    imagePickerLauncher.launch("image/*")
+                    imagePickerLauncher.launch(arrayOf("image/*"))
                 }
             )
 
@@ -595,41 +741,222 @@ fun VisualEditorScreen(
                 null
             }
 
-            val editorTextStyle = androidx.compose.material3.LocalTextStyle.current.copy(
+            val editorTextStyle = LocalTextStyle.current.copy(
                 textAlign = defaultAlignment,
                 textIndent = defaultTextIndent
             )
 
-            TextField(
-                value = textFieldValue,
-                onValueChange = { incoming ->
-                    val insertedLength = incoming.text.length - textFieldValue.text.length
-                    if (insertedLength > 1) {
-                        val clipboardHtml = getClipboardHtml(context)
-                        if (!clipboardHtml.isNullOrBlank()) {
-                            val selectionLen = (textFieldValue.selection.max - textFieldValue.selection.min).coerceAtLeast(0)
-                            val pasteStart = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
-                            val pasteEndInOrig = (pasteStart + selectionLen).coerceIn(0, textFieldValue.text.length)
-                            val newText = textFieldValue.text.substring(0, pasteStart) + clipboardHtml + textFieldValue.text.substring(pasteEndInOrig)
-                            textFieldValue = TextFieldValue(newText, TextRange(pasteStart + clipboardHtml.length))
-                            return@TextField
-                        }
-                    }
-                    textFieldValue = incoming
-                },
+            val imageUris = remember(textFieldValue.text) {
+                IMG_TAG_REGEX.findAll(textFieldValue.text).map { it.groupValues[1] }.distinct().toList()
+            }
+
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                textStyle = if (isCodeMode) androidx.compose.material3.LocalTextStyle.current else editorTextStyle,
-                visualTransformation = if (isCodeMode) VisualTransformation.None else visualTransform,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                ),
-                placeholder = { Text("Mulai menulis...") }
-            )
+                    .weight(1f)
+                    .verticalScroll(scrollState)
+            ) {
+                if (!isCodeMode && imageUris.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "Gambar dalam Dokumen:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                        )
+                        imageUris.forEach { uriStr ->
+                            ImagePreviewCard(
+                                uriString = uriStr,
+                                onDelete = {
+                                    val tagRegex = Regex("<img\\s+[^>]*src=[\"']${Regex.escape(uriStr)}[\"'][^>]*>", RegexOption.IGNORE_CASE)
+                                    val newText = textFieldValue.text.replace(tagRegex, "")
+                                    textFieldValue = TextFieldValue(newText, TextRange(textFieldValue.selection.start.coerceAtMost(newText.length)))
+                                }
+                            )
+                        }
+                    }
+                }
+
+                TextField(
+                    value = textFieldValue,
+                    onValueChange = { incoming ->
+                        val insertedLength = incoming.text.length - textFieldValue.text.length
+                        if (insertedLength > 1) {
+                            val clipboardHtml = getClipboardHtml(context)
+                            if (!clipboardHtml.isNullOrBlank()) {
+                                val selectionLen = (textFieldValue.selection.max - textFieldValue.selection.min).coerceAtLeast(0)
+                                val pasteStart = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
+                                val pasteEndInOrig = (pasteStart + selectionLen).coerceIn(0, textFieldValue.text.length)
+                                val newText = textFieldValue.text.substring(0, pasteStart) + clipboardHtml + textFieldValue.text.substring(pasteEndInOrig)
+                                textFieldValue = TextFieldValue(newText, TextRange(pasteStart + clipboardHtml.length))
+                                return@TextField
+                            }
+                        }
+                        textFieldValue = incoming
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = if (isCodeMode) LocalTextStyle.current else editorTextStyle,
+                    visualTransformation = if (isCodeMode) VisualTransformation.None else visualTransform,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    ),
+                    placeholder = { Text("Mulai menulis...") }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ImagePreviewCard(
+    uriString: String,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+    var bitmap by remember(uriString) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(uriString) {
+        withContext(Dispatchers.IO) {
+            try {
+                openImageStream(context, uriString)?.use { stream ->
+                    val decoded = BitmapFactory.decodeStream(stream)
+                    if (decoded != null) {
+                        bitmap = decoded.asImageBitmap()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    Surface(
+        tonalElevation = 1.dp,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap!!,
+                    contentDescription = "Image preview",
+                    modifier = Modifier
+                        .height(100.dp)
+                        .weight(1f, fill = false),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .height(80.dp)
+                        .weight(1f, fill = false)
+                        .background(Color.LightGray.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("[Gambar: ${uriString.takeLast(25)}]", fontSize = 12.sp, color = Color.Gray)
+                }
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete image", tint = Color.Red)
+            }
+        }
+    }
+}
+
+@Composable
+fun FindReplaceBar(
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    replaceQuery: String,
+    onReplaceQueryChange: (String) -> Unit,
+    matchCount: Int,
+    currentMatchIndex: Int,
+    onNextMatch: () -> Unit,
+    onPrevMatch: () -> Unit,
+    onReplace: () -> Unit,
+    onReplaceAll: () -> Unit,
+    onClose: () -> Unit
+) {
+    Surface(
+        tonalElevation = 3.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Cari...", fontSize = 14.sp) },
+                    singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
+                )
+
+                Text(
+                    text = if (searchQuery.isEmpty()) "" else if (matchCount > 0) "${currentMatchIndex + 1}/$matchCount" else "0/0",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+
+                IconButton(onClick = onPrevMatch, enabled = matchCount > 0) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Sebelumnya")
+                }
+                IconButton(onClick = onNextMatch, enabled = matchCount > 0) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Berikutnya")
+                }
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Default.Close, contentDescription = "Tutup")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = replaceQuery,
+                    onValueChange = onReplaceQueryChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Ganti dengan...", fontSize = 14.sp) },
+                    singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
+                )
+
+                Button(
+                    onClick = onReplace,
+                    enabled = matchCount > 0,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text("Ganti", fontSize = 12.sp)
+                }
+
+                Button(
+                    onClick = onReplaceAll,
+                    enabled = matchCount > 0,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text("Semua", fontSize = 12.sp)
+                }
+            }
         }
     }
 }
@@ -758,9 +1085,9 @@ fun FormattingToolbar(
             ToolbarButton(Icons.Default.FormatUnderlined, "Underline") { onApplyFormatting("<u>", "</u>") }
             ToolbarButton(Icons.Default.FormatStrikethrough, "Strikethrough") { onApplyFormatting("<s>", "</s>") }
             ToolbarButton(Icons.Default.Image, "Image") { onAddImage() }
-            ToolbarButton(Icons.Default.FormatAlignLeft, "Left") { onSetAlignment(ParagraphAlignment.Left) }
+            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "Left") { onSetAlignment(ParagraphAlignment.Left) }
             ToolbarButton(Icons.Default.FormatAlignCenter, "Center") { onSetAlignment(ParagraphAlignment.Center) }
-            ToolbarButton(Icons.Default.FormatAlignRight, "Right") { onSetAlignment(ParagraphAlignment.Right) }
+            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignRight, "Right") { onSetAlignment(ParagraphAlignment.Right) }
             ToolbarButton(Icons.Default.FormatAlignJustify, "Justify") { onSetAlignment(ParagraphAlignment.Justify) }
         }
     }

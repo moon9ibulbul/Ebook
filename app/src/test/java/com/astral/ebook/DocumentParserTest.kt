@@ -101,4 +101,19 @@ class DocumentParserTest {
         // Paragraph 0 gets 1 style to skip indent after heading, remaining 9,999 paragraphs get 0 styles
         assertEquals(1, largeResult.text.paragraphStyles.size)
     }
+
+    @Test
+    fun testFindAndReplaceMatches() {
+        val originalText = "Kata pertama, KATA kedua, kata ketiga."
+        val searchQuery = "kata"
+        val replaceQuery = "teks"
+
+        val regex = Regex.escape(searchQuery).toRegex(RegexOption.IGNORE_CASE)
+        val matches = regex.findAll(originalText).map { it.range }.toList()
+
+        assertEquals(3, matches.size)
+
+        val replacedAll = originalText.replace(regex, replaceQuery)
+        assertEquals("teks pertama, teks kedua, teks ketiga.", replacedAll)
+    }
 }
