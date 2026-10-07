@@ -147,13 +147,12 @@ class MarkupVisualTransformation(
         val transToOrig = IntArray(N + 1)
 
         val defaultAlignment = when (settings.paragraphOptions.alignment) {
-            ParagraphAlignment.Left -> TextAlign.Left
+            ParagraphAlignment.Left, ParagraphAlignment.Justify -> TextAlign.Left
             ParagraphAlignment.Center -> TextAlign.Center
             ParagraphAlignment.Right -> TextAlign.Right
-            ParagraphAlignment.Justify -> TextAlign.Justify
         }
 
-        val defaultAllowsIndent = defaultAlignment == TextAlign.Left || defaultAlignment == TextAlign.Justify
+        val defaultAllowsIndent = defaultAlignment == TextAlign.Left
         val defaultIndentEm = settings.paragraphOptions.firstLineIndentEm
         val defaultHasIndent = defaultAllowsIndent && defaultIndentEm > 0f
 
@@ -414,7 +413,7 @@ class MarkupVisualTransformation(
                 val pTransEndForPara = builder.length
 
                 val actualAlignment = alignment ?: defaultAlignment
-                val allowsIndent = actualAlignment == TextAlign.Left || actualAlignment == TextAlign.Justify
+                val allowsIndent = actualAlignment == TextAlign.Left
                 val applyIndent = !(paragraphIndex == 0 && settings.paragraphOptions.skipIndentAfterHeading) && allowsIndent
 
                 val textIndent = if (applyIndent) {
@@ -461,10 +460,9 @@ class MarkupVisualTransformation(
     }
 
     private fun parseTextAlign(str: String): TextAlign? = when (str.lowercase()) {
-        "left" -> TextAlign.Left
+        "left", "justify" -> TextAlign.Left
         "center" -> TextAlign.Center
         "right" -> TextAlign.Right
-        "justify" -> TextAlign.Justify
         else -> null
     }
 }
@@ -758,12 +756,11 @@ fun VisualEditorScreen(
             val visualTransform = remember(settings) { MarkupVisualTransformation(settings) }
 
             val defaultAlignment = when (settings.paragraphOptions.alignment) {
-                ParagraphAlignment.Left -> TextAlign.Left
+                ParagraphAlignment.Left, ParagraphAlignment.Justify -> TextAlign.Left
                 ParagraphAlignment.Center -> TextAlign.Center
                 ParagraphAlignment.Right -> TextAlign.Right
-                ParagraphAlignment.Justify -> TextAlign.Justify
             }
-            val defaultAllowsIndent = defaultAlignment == TextAlign.Left || defaultAlignment == TextAlign.Justify
+            val defaultAllowsIndent = defaultAlignment == TextAlign.Left
             val defaultIndentEm = settings.paragraphOptions.firstLineIndentEm
             val defaultTextIndent = if (defaultAllowsIndent && defaultIndentEm > 0f) {
                 TextIndent(firstLine = defaultIndentEm.em)

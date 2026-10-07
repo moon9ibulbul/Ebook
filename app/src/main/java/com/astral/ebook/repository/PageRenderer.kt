@@ -14,6 +14,13 @@ import com.astral.ebook.model.ParagraphAlignment
 import kotlin.math.max
 import kotlin.math.min
 
+private data class WordToken(
+    val text: String,
+    val width: Float,
+    val paint: Paint?,
+    val imageUri: String? = null
+)
+
 class PageRenderer(
     private val context: Context,
     private val settings: EbookSettings,
@@ -54,36 +61,12 @@ class PageRenderer(
             when (line) {
                 is LineContent.Text -> {
                     val currentLineHeight = if (line.height > 0f) line.height else layoutEngine.lineHeight
-                    val lineWidth = line.segments.sumOf { segment ->
-                        if (segment.imageUri != null) {
-                            val (imgW, _) = getImageDimensions(context, segment.imageUri, contentWidth)
-                            imgW.toDouble()
-                        } else {
-                            layoutEngine.bodyPaint(
-                                segment.bold,
-                                segment.italic,
-                                segment.underline,
-                                segment.strikeThrough
-                            ).measureText(segment.text).toDouble()
-                        }
-                    }.toFloat()
 
-                    val startX = when (line.alignment) {
-                        ParagraphAlignment.Left, ParagraphAlignment.Justify -> margins.start + line.indent
-                        ParagraphAlignment.Center -> margins.start + (contentWidth - lineWidth) / 2f
-                        ParagraphAlignment.Right -> pageWidth.toFloat() - margins.end - lineWidth
-                    }
-                    var x = startX
-                    val baselineY = y + currentLineHeight - (layoutEngine.baseBodyPaint.fontMetrics.descent)
-
+                    val tokens = mutableListOf<WordToken>()
                     line.segments.forEach { segment ->
                         if (segment.imageUri != null) {
-                            val (imgW, imgH) = getImageDimensions(context, segment.imageUri, contentWidth)
-                            val vertOffset = (currentLineHeight - imgH) / 2f
-                            val imgTop = y + vertOffset
-                            val imgRect = RectF(x, imgTop, x + imgW, imgTop + imgH)
-                            drawImageSegment(canvas, segment.imageUri, imgRect)
-                            x += imgW
+                            val (imgW, _) = getImageDimensions(context, segment.imageUri, contentWidth)
+                            tokens += WordToken("[Gambar]", imgW, null, segment.imageUri)
                         } else {
                             val paint = layoutEngine.bodyPaint(
                                 segment.bold,
@@ -91,8 +74,60 @@ class PageRenderer(
                                 segment.underline,
                                 segment.strikeThrough
                             )
-                            canvas.drawText(segment.text, x, baselineY, paint)
-                            x += paint.measureText(segment.text)
+                            val words = segment.text.split(Regex("""\s+""")).filter { it.isNotEmpty() }
+                            words.forEach { word ->
+                                val w = paint.measureText(word)
+                                tokens += WordToken(word, w, paint)
+                            }
+                        }
+                    }
+
+                    if (tokens.isEmpty()) {
+                        y += currentLineHeight
+                        return@forEach
+                    }
+
+                    val totalTokensWidth = tokens.sumOf { it.width.toDouble() }.toFloat()
+                    val availableWidth = contentWidth - line.indent
+                    val gapCount = tokens.size - 1
+
+                    val isJustified = line.alignment == ParagraphAlignment.Justify &&
+                            !line.isLastInParagraph &&
+                            gapCount > 0
+
+                    val standardSpaceWidth = layoutEngine.baseBodyPaint.measureText(" ")
+                    val gapWidth = if (isJustified) {
+                        val extraSpace = (availableWidth - totalTokensWidth).coerceAtLeast(0f)
+                        if (gapCount > 0) extraSpace / gapCount else standardSpaceWidth
+                    } else {
+                        standardSpaceWidth
+                    }
+
+                    val totalLineWidth = if (isJustified) availableWidth else totalTokensWidth + gapCount * standardSpaceWidth
+
+                    val startX = when (line.alignment) {
+                        ParagraphAlignment.Left, ParagraphAlignment.Justify -> margins.start + line.indent
+                        ParagraphAlignment.Center -> margins.start + (contentWidth - totalLineWidth) / 2f
+                        ParagraphAlignment.Right -> pageWidth.toFloat() - margins.end - totalLineWidth
+                    }
+
+                    var x = startX
+                    val baselineY = y + currentLineHeight - layoutEngine.baseBodyPaint.fontMetrics.descent
+
+                    tokens.forEachIndexed { index, token ->
+                        if (index > 0) {
+                            x += gapWidth
+                        }
+                        if (token.imageUri != null) {
+                            val (imgW, imgH) = getImageDimensions(context, token.imageUri, contentWidth)
+                            val vertOffset = (currentLineHeight - imgH) / 2f
+                            val imgTop = y + vertOffset
+                            val imgRect = RectF(x, imgTop, x + imgW, imgTop + imgH)
+                            drawImageSegment(canvas, token.imageUri, imgRect)
+                            x += imgW
+                        } else if (token.paint != null) {
+                            canvas.drawText(token.text, x, baselineY, token.paint)
+                            x += token.width
                         }
                     }
                     y += currentLineHeight

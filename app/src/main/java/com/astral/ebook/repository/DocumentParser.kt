@@ -225,5 +225,6 @@ private fun String.toParagraphAlignment(): ParagraphAlignment = when (lowercase(
     "left" -> ParagraphAlignment.Left
     "right" -> ParagraphAlignment.Right
     "center" -> ParagraphAlignment.Center
-    else -> ParagraphAlignment.Justify
+    "justify" -> ParagraphAlignment.Justify
+    else -> ParagraphAlignment.Left
 }

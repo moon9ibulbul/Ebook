@@ -46,7 +46,7 @@ enum class FontFamilyOption { Serif, SansSerif, Custom }
 enum class FontTarget { Title, Heading, Body }
 
 data class ParagraphOptions(
-    val alignment: ParagraphAlignment = ParagraphAlignment.Justify,
+    val alignment: ParagraphAlignment = ParagraphAlignment.Left,
     val firstLineIndentEm: Float = 1.4f,
     val skipIndentAfterHeading: Boolean = false,
     val extraParagraphSpacing: Float = 0f
@@ -278,7 +278,7 @@ fun Bundle.toEbookSettings(): EbookSettings {
 
     val paraB = getBundle("paragraphOptions")!!
     val paragraphOptions = ParagraphOptions(
-        alignment = ParagraphAlignment.valueOf(paraB.getString("alignment", "Justify")),
+        alignment = ParagraphAlignment.valueOf(paraB.getString("alignment", "Left")),
         firstLineIndentEm = paraB.getFloat("firstLineIndentEm", 1.4f),
         skipIndentAfterHeading = paraB.getBoolean("skipIndentAfterHeading", false),
         extraParagraphSpacing = paraB.getFloat("extraParagraphSpacing", 0f)
