@@ -609,11 +609,6 @@ fun VisualEditorScreen(
                                 )
                             }
                         }
-                        Text(
-                            text = if (isCodeMode) "Kode Raw" else "Editor",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
                     }
                 },
                 navigationIcon = {
