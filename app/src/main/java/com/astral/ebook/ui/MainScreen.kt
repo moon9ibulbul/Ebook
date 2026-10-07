@@ -705,10 +705,18 @@ private fun CoverPreviewCard(
                         modifier = Modifier
                             .height(80.dp)
                             .width(60.dp)
-                            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp)),
+                            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp))
+                            .padding(4.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = "No Cover Image",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            lineHeight = 11.sp
+                        )
                     }
                 }
 

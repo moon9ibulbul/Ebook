@@ -77,18 +77,102 @@ class PreviewActivity : ComponentActivity() {
                     val store = SettingsStore(context)
                     val intentSettingsBundle = intent.getBundleExtra("settings")
                     val savedSettings = intentSettingsBundle?.toEbookSettings() ?: store.settings.first()
-                    settings = savedSettings
 
+                    val meta = savedSettings.metadata
+                    val dummyMetadata = meta.copy(
+                        title = meta.title.ifBlank { "Judul Buku Dummy" },
+                        subtitle = meta.subtitle.ifBlank { "Subjudul Naskah Contoh" },
+                        chapter = meta.chapter.ifBlank { "Bab 1: Permulaan" },
+                        author = meta.author.ifBlank { "Nama Penulis Dummy" },
+                        translator = meta.translator.ifBlank { "Nama Penerjemah Dummy" },
+                        publisher = meta.publisher.ifBlank { "Penerbit Astral Press" },
+                        publicationYear = meta.publicationYear.ifBlank { "2025" },
+                        notes = meta.notes.ifBlank { "Catatan dummy untuk naskah contoh pratinjau." },
+                        language = meta.language.ifBlank { "Indonesia" }
+                    )
+                    val previewSettings = savedSettings.copy(metadata = dummyMetadata)
+                    settings = previewSettings
+
+                    val dummyParagraphs = listOf(
+                        com.astral.ebook.repository.FormattedParagraph(
+                            runs = listOf(
+                                com.astral.ebook.repository.TextRun(
+                                    text = "Ini adalah paragraf pertama naskah contoh dummy. Halaman ini digunakan untuk melihat bagaimana layout, tipografi, dan gaya formatting dokumen Anda akan ditampilkan dalam bentuk e-book.",
+                                    bold = false,
+                                    italic = false,
+                                    underline = false,
+                                    strikeThrough = false
+                                )
+                            )
+                        ),
+                        com.astral.ebook.repository.FormattedParagraph(
+                            runs = listOf(
+                                com.astral.ebook.repository.TextRun(
+                                    text = "Anda dapat mengatur gaya teks seperti ",
+                                    bold = false,
+                                    italic = false,
+                                    underline = false,
+                                    strikeThrough = false
+                                ),
+                                com.astral.ebook.repository.TextRun(
+                                    text = "tebal",
+                                    bold = true,
+                                    italic = false,
+                                    underline = false,
+                                    strikeThrough = false
+                                ),
+                                com.astral.ebook.repository.TextRun(
+                                    text = ", ",
+                                    bold = false,
+                                    italic = false,
+                                    underline = false,
+                                    strikeThrough = false
+                                ),
+                                com.astral.ebook.repository.TextRun(
+                                    text = "miring",
+                                    bold = false,
+                                    italic = true,
+                                    underline = false,
+                                    strikeThrough = false
+                                ),
+                                com.astral.ebook.repository.TextRun(
+                                    text = ", dan ",
+                                    bold = false,
+                                    italic = false,
+                                    underline = false,
+                                    strikeThrough = false
+                                ),
+                                com.astral.ebook.repository.TextRun(
+                                    text = "garis bawah",
+                                    bold = false,
+                                    italic = false,
+                                    underline = true,
+                                    strikeThrough = false
+                                ),
+                                com.astral.ebook.repository.TextRun(
+                                    text = " pada visual editor.",
+                                    bold = false,
+                                    italic = false,
+                                    underline = false,
+                                    strikeThrough = false
+                                )
+                            )
+                        )
+                    )
+
+                    var docContent: com.astral.ebook.repository.DocumentContent? = null
                     if (bodyUri != null) {
                         try {
-                            val content = DocumentParser.readBody(context, bodyUri)
-                            val engine = EbookLayoutEngine(context, savedSettings)
-                            pages = engine.layoutPages(content)
+                            val parsed = DocumentParser.readBody(context, bodyUri)
+                            if (parsed.paragraphs.isNotEmpty() && parsed.paragraphs.any { p -> p.runs.any { r -> r.text.isNotBlank() } }) {
+                                docContent = parsed
+                            }
                         } catch (_: Exception) {}
-                    } else {
-                        val engine = EbookLayoutEngine(context, savedSettings)
-                        pages = engine.layoutPages(com.astral.ebook.repository.DocumentContent(emptyList()))
                     }
+
+                    val finalContent = docContent ?: com.astral.ebook.repository.DocumentContent(dummyParagraphs)
+                    val engine = EbookLayoutEngine(context, previewSettings)
+                    pages = engine.layoutPages(finalContent)
                     isLoading = false
                 }
             }

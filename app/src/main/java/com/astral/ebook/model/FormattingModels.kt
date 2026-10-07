@@ -24,7 +24,7 @@ data class FooterOptions(
 )
 
 data class CoverOptions(
-    val fullBleed: Boolean = false
+    val fullBleed: Boolean = true
 )
 
 data class FontOptions(
@@ -63,7 +63,7 @@ data class Metadata(
     val publisher: String = "",
     val publicationYear: String = Year.now().value.toString(),
     val notes: String = "",
-    val language: String = "en"
+    val language: String = "Indonesia"
 )
 
 data class ThemeOptions(
@@ -237,7 +237,7 @@ fun Bundle.toEbookSettings(): EbookSettings {
         publisher = metaB.getString("publisher", ""),
         publicationYear = metaB.getString("publicationYear", ""),
         notes = metaB.getString("notes", ""),
-        language = metaB.getString("language", "en")
+        language = metaB.getString("language", "Indonesia")
     )
 
     val presetB = getBundle("pagePreset")!!
@@ -308,7 +308,7 @@ fun Bundle.toEbookSettings(): EbookSettings {
 
     val coverB = getBundle("coverOptions")!!
     val coverOptions = CoverOptions(
-        fullBleed = coverB.getBoolean("fullBleed", false)
+        fullBleed = coverB.getBoolean("fullBleed", true)
     )
 
     return EbookSettings(

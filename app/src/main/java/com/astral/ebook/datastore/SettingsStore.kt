@@ -70,7 +70,7 @@ class SettingsStore(private val context: Context) {
             publisher = prefs[Keys.PUBLISHER].orEmpty(),
             publicationYear = prefs[Keys.YEAR].orEmpty(),
             notes = prefs[Keys.NOTES].orEmpty(),
-            language = prefs[Keys.LANGUAGE] ?: "en"
+            language = prefs[Keys.LANGUAGE] ?: "Indonesia"
         )
         val fonts = FontOptions(
             titleFamily = prefs[Keys.TITLE_FAMILY]?.let { FontFamilyOption.valueOf(it) }
@@ -106,7 +106,7 @@ class SettingsStore(private val context: Context) {
             footerOptions = footer,
             orientation = prefs[Keys.ORIENTATION]?.let { Orientation.valueOf(it) } ?: Orientation.Portrait,
             coverOptions = CoverOptions(
-                fullBleed = prefs[Keys.COVER_FULL_BLEED] ?: false
+                fullBleed = prefs[Keys.COVER_FULL_BLEED] ?: true
             )
         ).copy(
             margins = Margins(
