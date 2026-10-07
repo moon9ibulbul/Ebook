@@ -116,4 +116,32 @@ class DocumentParserTest {
         val replacedAll = originalText.replace(regex, replaceQuery)
         assertEquals("teks pertama, teks kedua, teks ketiga.", replacedAll)
     }
+
+    @Test
+    fun testDefaultParagraphAlignmentIsLeft() {
+        val defaultOptions = com.astral.ebook.model.ParagraphOptions()
+        assertEquals(ParagraphAlignment.Left, defaultOptions.alignment)
+    }
+
+    @Test
+    fun testParseParagraphMarkupJustify() {
+        val paragraph = DocumentParser.parseParagraphMarkup("<p align=\"justify\">Paragraf ini rata kanan kiri</p>")
+        assertEquals(ParagraphAlignment.Justify, paragraph.alignment)
+        assertEquals("Paragraf ini rata kanan kiri", paragraph.plainText())
+    }
+
+    @Test
+    fun testLineContentTextIsLastInParagraph() {
+        val line1 = com.astral.ebook.repository.LineContent.Text(
+            segments = emptyList(),
+            indent = 0f,
+            alignment = ParagraphAlignment.Justify,
+            isLastInParagraph = false
+        )
+        val line2 = line1.copy(isLastInParagraph = true)
+
+        assertEquals(false, line1.isLastInParagraph)
+        assertEquals(true, line2.isLastInParagraph)
+        assertEquals(ParagraphAlignment.Justify, line2.alignment)
+    }
 }

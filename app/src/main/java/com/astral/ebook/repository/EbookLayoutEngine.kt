@@ -23,7 +23,13 @@ data class TextRunSegment(
 )
 
 sealed interface LineContent {
-    data class Text(val segments: List<TextRunSegment>, val indent: Float, val alignment: ParagraphAlignment, val height: Float = 0f) : LineContent
+    data class Text(
+        val segments: List<TextRunSegment>,
+        val indent: Float,
+        val alignment: ParagraphAlignment,
+        val height: Float = 0f,
+        val isLastInParagraph: Boolean = false
+    ) : LineContent
     data class Spacer(val spacing: Float) : LineContent
 }
 
@@ -231,7 +237,8 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
                 LineContent.Text(
                     listOf(TextRunSegment("", false, false, false, false)),
                     0f,
-                    alignment
+                    alignment,
+                    isLastInParagraph = true
                 )
             )
         }
@@ -302,7 +309,9 @@ class EbookLayoutEngine(private val context: Context, private val settings: Eboo
             }
         }
         flushWithImageHeight()
-        return lines
+        return lines.mapIndexed { index, line ->
+            if (index == lines.lastIndex) line.copy(isLastInParagraph = true) else line
+        }
     }
 
     fun wrapText(text: String, paint: Paint, maxWidth: Float): List<String> {

@@ -101,7 +101,7 @@ class SettingsStore(private val context: Context) {
             fonts = fonts,
             paragraphOptions = ParagraphOptions(
                 alignment = prefs[Keys.ALIGNMENT]?.let { ParagraphAlignment.valueOf(it) }
-                    ?: ParagraphAlignment.Justify
+                    ?: ParagraphAlignment.Left
             ),
             footerOptions = footer,
             orientation = prefs[Keys.ORIENTATION]?.let { Orientation.valueOf(it) } ?: Orientation.Portrait,
