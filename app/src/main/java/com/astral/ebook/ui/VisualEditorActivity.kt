@@ -704,48 +704,52 @@ fun VisualEditorScreen(
                     val text = textFieldValue.text
                     val tag = align.name.lowercase()
 
-                    var paraStart = start
-                    while (paraStart > 0 && text[paraStart - 1] != '\n') {
-                        paraStart--
+                    var rangeStart = start.coerceIn(0, text.length)
+                    while (rangeStart > 0 && text[rangeStart - 1] != '\n') {
+                        rangeStart--
                     }
-                    var paraEnd = end
-                    while (paraEnd < text.length && text[paraEnd] != '\n') {
-                        paraEnd++
+                    var rangeEnd = end.coerceIn(0, text.length)
+                    while (rangeEnd < text.length && text[rangeEnd] != '\n') {
+                        rangeEnd++
                     }
 
-                    val paraText = text.substring(paraStart, paraEnd)
+                    val rangeText = text.substring(rangeStart, rangeEnd)
+                    val lines = rangeText.split('\n')
 
                     val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
                     val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
-                    var workingPara = paraText.trim()
-                    var existingAlign: String? = null
+                    val transformedLines = lines.map { line ->
+                        var workingPara = line.trim()
+                        var existingAlign: String? = null
 
-                    var matched = true
-                    while (matched) {
-                        val htmlPMatch = htmlPAlign.find(workingPara)
-                        if (htmlPMatch != null) {
-                            existingAlign = htmlPMatch.groupValues[1].ifEmpty { htmlPMatch.groupValues[2] }.lowercase()
-                            workingPara = htmlPMatch.groupValues[3].trim()
-                            continue
+                        var matched = true
+                        while (matched) {
+                            val htmlPMatch = htmlPAlign.find(workingPara)
+                            if (htmlPMatch != null) {
+                                existingAlign = htmlPMatch.groupValues[1].ifEmpty { htmlPMatch.groupValues[2] }.lowercase()
+                                workingPara = htmlPMatch.groupValues[3].trim()
+                                continue
+                            }
+                            val centerMatch = centerTag.find(workingPara)
+                            if (centerMatch != null) {
+                                existingAlign = "center"
+                                workingPara = centerMatch.groupValues[1].trim()
+                                continue
+                            }
+                            matched = false
                         }
-                        val centerMatch = centerTag.find(workingPara)
-                        if (centerMatch != null) {
-                            existingAlign = "center"
-                            workingPara = centerMatch.groupValues[1].trim()
-                            continue
+
+                        if (existingAlign == tag) {
+                            workingPara
+                        } else {
+                            "<p align=\"$tag\">$workingPara</p>"
                         }
-                        matched = false
                     }
 
-                    val newParaText = if (existingAlign == tag) {
-                        workingPara
-                    } else {
-                        "<p align=\"$tag\">$workingPara</p>"
-                    }
-
-                    val newText = text.substring(0, paraStart) + newParaText + text.substring(paraEnd)
-                    val newSelection = TextRange(paraStart, paraStart + newParaText.length)
+                    val newRangeText = transformedLines.joinToString("\n")
+                    val newText = text.substring(0, rangeStart) + newRangeText + text.substring(rangeEnd)
+                    val newSelection = TextRange(rangeStart, rangeStart + newRangeText.length)
                     textFieldValue = TextFieldValue(newText, newSelection)
                 },
                 onAddImage = {
@@ -814,15 +818,26 @@ fun VisualEditorScreen(
                 TextField(
                     value = textFieldValue,
                     onValueChange = { incoming ->
-                        val insertedLength = incoming.text.length - textFieldValue.text.length
-                        if (insertedLength > 1) {
-                            val clipboardHtml = getClipboardHtml(context)
-                            if (!clipboardHtml.isNullOrBlank()) {
-                                val selectionLen = (textFieldValue.selection.max - textFieldValue.selection.min).coerceAtLeast(0)
-                                val pasteStart = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
-                                val pasteEndInOrig = (pasteStart + selectionLen).coerceIn(0, textFieldValue.text.length)
-                                val newText = textFieldValue.text.substring(0, pasteStart) + clipboardHtml + textFieldValue.text.substring(pasteEndInOrig)
-                                textFieldValue = TextFieldValue(newText, TextRange(pasteStart + clipboardHtml.length))
+                        if (!isCodeMode) {
+                            val insertedLength = incoming.text.length - textFieldValue.text.length
+                            if (insertedLength > 1) {
+                                val clipboardHtml = getClipboardHtml(context)
+                                if (!clipboardHtml.isNullOrBlank()) {
+                                    val selectionLen = (textFieldValue.selection.max - textFieldValue.selection.min).coerceAtLeast(0)
+                                    val pasteStart = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
+                                    val pasteEndInOrig = (pasteStart + selectionLen).coerceIn(0, textFieldValue.text.length)
+                                    val pastedText = textFieldValue.text.substring(0, pasteStart) + clipboardHtml + textFieldValue.text.substring(pasteEndInOrig)
+                                    val cleanedPasted = cleanUpMarkup(pastedText)
+                                    textFieldValue = TextFieldValue(cleanedPasted, TextRange((pasteStart + clipboardHtml.length).coerceAtMost(cleanedPasted.length)))
+                                    return@TextField
+                                }
+                            }
+
+                            val cleanedText = cleanUpMarkup(incoming.text)
+                            if (cleanedText != incoming.text) {
+                                val newSelStart = incoming.selection.start.coerceIn(0, cleanedText.length)
+                                val newSelEnd = incoming.selection.end.coerceIn(0, cleanedText.length)
+                                textFieldValue = incoming.copy(text = cleanedText, selection = TextRange(newSelStart, newSelEnd))
                                 return@TextField
                             }
                         }
@@ -1014,6 +1029,165 @@ private fun getClipboardHtml(context: Context): String? {
     } catch (_: Exception) {
         null
     }
+}
+
+fun cleanUpMarkup(input: String): String {
+    if (input.isEmpty()) return ""
+
+    val lines = input.split('\n')
+    val cleanedLines = lines.map { line -> cleanUpLineMarkup(line) }
+    return cleanedLines.joinToString("\n")
+}
+
+private fun cleanUpLineMarkup(line: String): String {
+    if (line.isEmpty()) return ""
+
+    var working = line
+
+    val emptyInlineRegex = Regex("<(b|strong|i|em|u|s|del|strike)\\b[^>]*>\\s*</\\1>", RegexOption.IGNORE_CASE)
+    var prev = ""
+    var loopCount = 0
+    while (working != prev && loopCount < 10) {
+        prev = working
+        working = working.replace(emptyInlineRegex, "")
+        loopCount++
+    }
+
+    val pOpenRegex = Regex("^<(p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>", RegexOption.IGNORE_CASE)
+    val centerOpenRegex = Regex("^<center>", RegexOption.IGNORE_CASE)
+
+    val pOpenMatch = pOpenRegex.find(working)
+    val centerOpenMatch = if (pOpenMatch == null) centerOpenRegex.find(working) else null
+
+    if (pOpenMatch != null) {
+        val fullOpenTag = pOpenMatch.value
+        val alignVal = pOpenMatch.groupValues[2].ifEmpty { pOpenMatch.groupValues[3] }.lowercase()
+        var inner = working.substring(fullOpenTag.length)
+        inner = inner.replace(Regex("</(p|div)>\\s*$", RegexOption.IGNORE_CASE), "")
+
+        prev = ""
+        loopCount = 0
+        while (inner != prev && loopCount < 10) {
+            prev = inner
+            inner = inner.replace(emptyInlineRegex, "")
+            loopCount++
+        }
+        inner = inner.trim()
+
+        if (inner.isEmpty()) {
+            working = ""
+        } else {
+            inner = balanceInlineTags(inner)
+            working = if (inner.isEmpty()) "" else "<p align=\"$alignVal\">$inner</p>"
+        }
+    } else if (centerOpenMatch != null) {
+        var inner = working.substring(8)
+        inner = inner.replace(Regex("</center>\\s*$", RegexOption.IGNORE_CASE), "")
+
+        prev = ""
+        loopCount = 0
+        while (inner != prev && loopCount < 10) {
+            prev = inner
+            inner = inner.replace(emptyInlineRegex, "")
+            loopCount++
+        }
+        inner = inner.trim()
+
+        if (inner.isEmpty()) {
+            working = ""
+        } else {
+            inner = balanceInlineTags(inner)
+            working = if (inner.isEmpty()) "" else "<center>$inner</center>"
+        }
+    } else {
+        working = working.replace(Regex("</(p|div|center)>", RegexOption.IGNORE_CASE), "")
+        working = balanceInlineTags(working)
+    }
+
+    working = removeStrayTagFragments(working)
+
+    return working
+}
+
+private fun balanceInlineTags(text: String): String {
+    if (text.isEmpty()) return ""
+    var result = text
+
+    val tagPairs = listOf(
+        Pair("b", "b"),
+        Pair("strong", "strong"),
+        Pair("i", "i"),
+        Pair("em", "em"),
+        Pair("u", "u"),
+        Pair("s", "s"),
+        Pair("del", "del"),
+        Pair("strike", "strike")
+    )
+
+    for ((openName, closeName) in tagPairs) {
+        val openRegex = Regex("<$openName\\b[^>]*>", RegexOption.IGNORE_CASE)
+        val closeRegex = Regex("</$closeName>", RegexOption.IGNORE_CASE)
+
+        val openMatches = openRegex.findAll(result).toList()
+        val closeMatches = closeRegex.findAll(result).toList()
+
+        if (openMatches.size > closeMatches.size) {
+            val diff = openMatches.size - closeMatches.size
+            val lastOpenEnd = openMatches.last().range.last + 1
+            val textAfter = result.substring(lastOpenEnd).replace(closeRegex, "").trim()
+            if (textAfter.isNotEmpty()) {
+                result += "</$closeName>".repeat(diff)
+            } else {
+                val lastOpenStart = openMatches.last().range.first
+                result = result.substring(0, lastOpenStart) + result.substring(lastOpenEnd)
+            }
+        } else if (closeMatches.size > openMatches.size) {
+            val diff = closeMatches.size - openMatches.size
+            var removed = 0
+            for (m in closeMatches) {
+                if (removed < diff) {
+                    result = result.replaceFirst(m.value, "")
+                    removed++
+                }
+            }
+        }
+    }
+
+    val emptyInlineRegex = Regex("<(b|strong|i|em|u|s|del|strike)\\b[^>]*>\\s*</\\1>", RegexOption.IGNORE_CASE)
+    var prev = ""
+    var loopCount = 0
+    while (result != prev && loopCount < 10) {
+        prev = result
+        result = result.replace(emptyInlineRegex, "")
+        loopCount++
+    }
+
+    return result
+}
+
+private fun removeStrayTagFragments(text: String): String {
+    if (!text.contains('<') && !text.contains('>')) return text
+
+    val validTagPattern = Regex(
+        "\\\\<|</?(?:b|strong|i|em|u|s|del|strike|p|div|center)\\b[^>]*>|<img\\s+[^>]*src=[\"'][^\"']+[\"'][^>]*>",
+        RegexOption.IGNORE_CASE
+    )
+
+    val sb = StringBuilder()
+    var lastEnd = 0
+
+    for (m in validTagPattern.findAll(text)) {
+        val between = text.substring(lastEnd, m.range.first)
+        val cleanBetween = between.replace("<", "").replace(">", "")
+        sb.append(cleanBetween)
+        sb.append(m.value)
+        lastEnd = m.range.last + 1
+    }
+
+    val tail = text.substring(lastEnd)
+    sb.append(tail.replace("<", "").replace(">", ""))
+
+    return sb.toString()
 }
 
 fun sanitizePastedHtml(html: String): String {
