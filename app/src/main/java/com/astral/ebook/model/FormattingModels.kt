@@ -48,7 +48,7 @@ enum class FontTarget { Title, Heading, Body }
 data class ParagraphOptions(
     val alignment: ParagraphAlignment = ParagraphAlignment.Justify,
     val firstLineIndentEm: Float = 1.4f,
-    val skipIndentAfterHeading: Boolean = true,
+    val skipIndentAfterHeading: Boolean = false,
     val extraParagraphSpacing: Float = 0f
 )
 
@@ -280,7 +280,7 @@ fun Bundle.toEbookSettings(): EbookSettings {
     val paragraphOptions = ParagraphOptions(
         alignment = ParagraphAlignment.valueOf(paraB.getString("alignment", "Justify")),
         firstLineIndentEm = paraB.getFloat("firstLineIndentEm", 1.4f),
-        skipIndentAfterHeading = paraB.getBoolean("skipIndentAfterHeading", true),
+        skipIndentAfterHeading = paraB.getBoolean("skipIndentAfterHeading", false),
         extraParagraphSpacing = paraB.getFloat("extraParagraphSpacing", 0f)
     )
 
