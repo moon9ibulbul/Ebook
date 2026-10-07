@@ -145,25 +145,40 @@ class PageRenderer(
         if (!drewImage) {
             val contentWidth = pageWidth.toFloat() - (settings.margins.start + settings.margins.end)
             val centerX = pageWidth.toFloat() / 2f
-            val titleLines = layoutEngine.wrapText(settings.metadata.title, layoutEngine.titlePaint, contentWidth)
-            val subtitleLines = layoutEngine.wrapText(settings.metadata.subtitle, layoutEngine.subtitlePaint, contentWidth)
-            val titleHeight = titleLines.size * layoutEngine.titlePaint.fontSpacing
-            val subtitleHeight = subtitleLines.size * layoutEngine.subtitlePaint.fontSpacing
-            val spacing = if (titleLines.isNotEmpty() && subtitleLines.isNotEmpty()) layoutEngine.subtitlePaint.fontSpacing else 0f
-            var y = (pageHeight.toFloat() - (titleHeight + subtitleHeight + spacing)) / 2f
+
+            val boxWidth = if (settings.coverOptions.fullBleed) pageWidth.toFloat() * 0.8f else contentWidth * 0.85f
+            val boxHeight = boxWidth * 1.35f
+            val boxLeft = centerX - (boxWidth / 2f)
+            val boxTop = (pageHeight.toFloat() - boxHeight) / 2f
+            val rect = RectF(boxLeft, boxTop, boxLeft + boxWidth, boxTop + boxHeight)
+
+            val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.LTGRAY
+                style = Paint.Style.FILL
+            }
+            canvas.drawRoundRect(rect, 24f, 24f, boxPaint)
+
+            val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.GRAY
+                style = Paint.Style.STROKE
+                strokeWidth = 3f
+            }
+            canvas.drawRoundRect(rect, 24f, 24f, borderPaint)
+
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.DKGRAY
+                textSize = (16f * context.resources.displayMetrics.density).coerceAtMost(boxHeight / 10f)
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("No Cover Image", centerX, rect.centerY() - textPaint.textSize, textPaint)
+
+            val titleLines = layoutEngine.wrapText(settings.metadata.title, layoutEngine.titlePaint, boxWidth - 32f)
             if (titleLines.isNotEmpty()) {
-                var baseline = y + layoutEngine.titlePaint.textSize
-                titleLines.forEach { line ->
+                var baseline = rect.centerY() + textPaint.textSize
+                titleLines.take(2).forEach { line ->
                     drawCenteredText(canvas, line, centerX, baseline, layoutEngine.titlePaint)
                     baseline += layoutEngine.titlePaint.fontSpacing
-                }
-                y += titleHeight + spacing
-            }
-            if (subtitleLines.isNotEmpty()) {
-                var baseline = y + layoutEngine.subtitlePaint.textSize
-                subtitleLines.forEach { line ->
-                    drawCenteredText(canvas, line, centerX, baseline, layoutEngine.subtitlePaint)
-                    baseline += layoutEngine.subtitlePaint.fontSpacing
                 }
             }
         }
