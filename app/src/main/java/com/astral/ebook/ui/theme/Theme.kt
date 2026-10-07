@@ -7,17 +7,37 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 
 private val LightColors = lightColorScheme(
-    primary = PurplePrimary,
-    surface = CreamPaper,
-    background = CreamPaper,
-    onSurface = InkDark
+    primary = IndigoPrimary,
+    onPrimary = SlateLightSurface,
+    primaryContainer = IndigoLightContainer,
+    onPrimaryContainer = IndigoOnLightContainer,
+    secondary = IndigoPrimaryVariant,
+    onSecondary = SlateLightSurface,
+    background = SlateLightBackground,
+    onBackground = SlateLightText,
+    surface = SlateLightSurface,
+    onSurface = SlateLightText,
+    surfaceVariant = SlateLightBackground,
+    onSurfaceVariant = SlateLightTextMuted,
+    outline = SlateLightOutline,
+    outlineVariant = SlateLightOutline
 )
 
 private val DarkColors = darkColorScheme(
-    primary = PurplePrimary,
-    surface = PaperDark,
-    background = PaperDark,
-    onSurface = InkLight
+    primary = IndigoPrimaryVariant,
+    onPrimary = SlateLightSurface,
+    primaryContainer = IndigoDarkContainer,
+    onPrimaryContainer = IndigoOnDarkContainer,
+    secondary = IndigoPrimary,
+    onSecondary = SlateLightSurface,
+    background = SlateDarkBackground,
+    onBackground = SlateDarkText,
+    surface = SlateDarkSurface,
+    onSurface = SlateDarkText,
+    surfaceVariant = SlateDarkCard,
+    onSurfaceVariant = SlateDarkTextMuted,
+    outline = SlateDarkOutline,
+    outlineVariant = SlateDarkOutline
 )
 
 @Composable

@@ -4,29 +4,62 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FormatAlignLeft
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.ViewHeadline
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,12 +69,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.astral.ebook.EbookUiState
 import com.astral.ebook.model.EbookSettings
 import com.astral.ebook.model.FontFamilyOption
@@ -50,9 +87,12 @@ import com.astral.ebook.model.FooterOptions
 import com.astral.ebook.model.Margins
 import com.astral.ebook.model.Metadata
 import com.astral.ebook.model.Orientation
+import com.astral.ebook.model.ParagraphAlignment
 import com.astral.ebook.model.Presets
 import com.astral.ebook.model.ThemeOptions
-import com.astral.ebook.model.ParagraphAlignment
+import com.astral.ebook.ui.theme.IndigoDark
+import com.astral.ebook.ui.theme.IndigoPrimary
+import com.astral.ebook.ui.theme.IndigoPrimaryVariant
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -126,6 +166,7 @@ fun MainScreen(
             applyCustomFont(FontTarget.Body, uri)
         }
     }
+
     val scrollState = rememberScrollState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -137,211 +178,355 @@ fun MainScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("AstralEbook") }) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Book,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "AstralEbook",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        },
+        bottomBar = {
+            Surface(
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column {
+                    if (uiState.isGenerating) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            onClick = onPreview
+                        ) {
+                            Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Pratinjau")
+                        }
+
+                        Button(
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            enabled = uiState.bodyUri != null && !uiState.isGenerating,
+                            onClick = onGenerate
+                        ) {
+                            Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Generate PDF", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
-                .padding(horizontal = 16.dp)
+                .fillMaxSize()
                 .verticalScroll(scrollState)
-                .fillMaxSize(),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            SectionTitle("Source Files")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            // Hero Workspace Card
+            HeroWorkspaceCard(
+                coverUri = uiState.coverUri,
+                onVisualEditor = onVisualEditor,
+                onPickCover = { coverPicker.launch(arrayOf("image/*")) }
+            )
+
+            // Section 1: Metadata
+            StudioCard(
+                icon = Icons.Default.Article,
+                title = "Metadata Buku"
             ) {
-                FilledTonalButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = onVisualEditor
-                ) {
-                    Text("Visual Editor")
-                }
-                FilledTonalButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        coverPicker.launch(arrayOf("image/*"))
-                    }
-                ) {
-                    Text(if (uiState.coverUri == null) "Cover image" else "Change cover")
-                }
+                MetadataFields(uiState.settings.metadata, onMetadataChange)
             }
 
-            SectionTitle("Metadata")
-            MetadataFields(uiState.settings.metadata, onMetadataChange)
-
-            SectionTitle("Cover")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = !uiState.settings.coverOptions.fullBleed,
-                    onClick = { onSettingsChange { copy(coverOptions = coverOptions.copy(fullBleed = false)) } },
-                    label = { Text("With margin") }
-                )
-                FilterChip(
-                    selected = uiState.settings.coverOptions.fullBleed,
-                    onClick = { onSettingsChange { copy(coverOptions = coverOptions.copy(fullBleed = true)) } },
-                    label = { Text("Full bleed") }
-                )
-            }
-
-            SectionTitle("Page preset")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Presets.presets.forEach { preset ->
+            // Section 2: Sampul & Cover Options
+            StudioCard(
+                icon = Icons.Default.Image,
+                title = "Opsi Sampul"
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
-                        selected = uiState.settings.pagePreset.name == preset.name,
-                        onClick = {
-                            onSettingsChange {
-                                copy(
-                                    pagePreset = preset,
-                                    margins = com.astral.ebook.model.Margins(
-                                        preset.marginTop,
-                                        preset.marginBottom,
-                                        preset.marginStart,
-                                        preset.marginEnd
+                        selected = !uiState.settings.coverOptions.fullBleed,
+                        onClick = { onSettingsChange { copy(coverOptions = coverOptions.copy(fullBleed = false)) } },
+                        label = { Text("Dengan Margin") }
+                    )
+                    FilterChip(
+                        selected = uiState.settings.coverOptions.fullBleed,
+                        onClick = { onSettingsChange { copy(coverOptions = coverOptions.copy(fullBleed = true)) } },
+                        label = { Text("Full Bleed") }
+                    )
+                }
+            }
+
+            // Section 3: Preset Halaman & Orientasi
+            StudioCard(
+                icon = Icons.Default.AutoAwesome,
+                title = "Halaman & Orientasi"
+            ) {
+                Text("Preset Halaman", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Presets.presets.forEach { preset ->
+                        FilterChip(
+                            selected = uiState.settings.pagePreset.name == preset.name,
+                            onClick = {
+                                onSettingsChange {
+                                    copy(
+                                        pagePreset = preset,
+                                        margins = Margins(
+                                            preset.marginTop,
+                                            preset.marginBottom,
+                                            preset.marginStart,
+                                            preset.marginEnd
+                                        )
                                     )
+                                }
+                            },
+                            label = { Text(preset.name) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text("Orientasi", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Orientation.values().forEach { orientation ->
+                        FilterChip(
+                            selected = uiState.settings.orientation == orientation,
+                            onClick = { onSettingsChange { copy(orientation = orientation) } },
+                            label = { Text(if (orientation == Orientation.Portrait) "Potret" else "Lanskap") }
+                        )
+                    }
+                }
+            }
+
+            // Section 4: Margin
+            StudioCard(
+                icon = Icons.Default.Straighten,
+                title = "Margin Halaman (px)"
+            ) {
+                MarginFields(uiState.settings.margins) { margins ->
+                    onSettingsChange { copy(margins = margins) }
+                }
+            }
+
+            // Section 5: Tema & Warna
+            StudioCard(
+                icon = Icons.Default.Palette,
+                title = "Tema & Warna Halaman"
+            ) {
+                ThemeSection(uiState.settings.themeOptions) { updated ->
+                    onSettingsChange { copy(themeOptions = updated) }
+                }
+            }
+
+            // Section 6: Font & Tipografi
+            StudioCard(
+                icon = Icons.Default.TextFields,
+                title = "Tipografi & Font"
+            ) {
+                FontFamilySelector(
+                    label = "Font Judul Utama",
+                    selected = uiState.settings.fonts.titleFamily,
+                    customFontUri = uiState.settings.fonts.titleFontUri,
+                    onChange = { option ->
+                        onSettingsChange {
+                            copy(
+                                fonts = fonts.copy(
+                                    titleFamily = option,
+                                    titleFontUri = if (option == FontFamilyOption.Custom) fonts.titleFontUri else null
+                                )
+                            )
+                        }
+                    },
+                    onPickCustomFont = { titleFontPicker.launch(fontMimeTypes) },
+                    onClearCustomFont = { applyCustomFont(FontTarget.Title, null) }
+                )
+
+                FontFamilySelector(
+                    label = "Font Sub-Judul / Bab",
+                    selected = uiState.settings.fonts.headingFamily,
+                    customFontUri = uiState.settings.fonts.headingFontUri,
+                    onChange = { option ->
+                        onSettingsChange {
+                            copy(
+                                fonts = fonts.copy(
+                                    headingFamily = option,
+                                    headingFontUri = if (option == FontFamilyOption.Custom) fonts.headingFontUri else null
+                                )
+                            )
+                        }
+                    },
+                    onPickCustomFont = { headingFontPicker.launch(fontMimeTypes) },
+                    onClearCustomFont = { applyCustomFont(FontTarget.Heading, null) }
+                )
+
+                FontFamilySelector(
+                    label = "Font Teks Isi",
+                    selected = uiState.settings.fonts.bodyFamily,
+                    customFontUri = uiState.settings.fonts.bodyFontUri,
+                    onChange = { option ->
+                        onSettingsChange {
+                            copy(
+                                fonts = fonts.copy(
+                                    bodyFamily = option,
+                                    bodyFontUri = if (option == FontFamilyOption.Custom) fonts.bodyFontUri else null
+                                )
+                            )
+                        }
+                    },
+                    onPickCustomFont = { bodyFontPicker.launch(fontMimeTypes) },
+                    onClearCustomFont = { applyCustomFont(FontTarget.Body, null) }
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        NumberField("Judul (pt)", uiState.settings.fonts.titleSize) { value ->
+                            onSettingsChange { copy(fonts = fonts.copy(titleSize = value)) }
+                        }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        NumberField("Bab (pt)", uiState.settings.fonts.chapterSize) { value ->
+                            onSettingsChange { copy(fonts = fonts.copy(chapterSize = value)) }
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        NumberField("Heading (pt)", uiState.settings.fonts.headingSize) { value ->
+                            onSettingsChange { copy(fonts = fonts.copy(headingSize = value)) }
+                        }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        NumberField("Isi (pt)", uiState.settings.fonts.bodySize) { value ->
+                            onSettingsChange { copy(fonts = fonts.copy(bodySize = value)) }
+                        }
+                    }
+                }
+
+                NumberField("Jarak Baris (Line Spacing)", uiState.settings.fonts.lineHeight) { value ->
+                    onSettingsChange { copy(fonts = fonts.copy(lineHeight = value)) }
+                }
+            }
+
+            // Section 7: Paragraf
+            StudioCard(
+                icon = Icons.Default.FormatAlignLeft,
+                title = "Pengaturan Paragraf"
+            ) {
+                Text("Rata Teks Default", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ParagraphAlignment.values().forEach { align ->
+                        FilterChip(
+                            selected = uiState.settings.paragraphOptions.alignment == align,
+                            onClick = { onSettingsChange { copy(paragraphOptions = paragraphOptions.copy(alignment = align)) } },
+                            label = {
+                                Text(
+                                    when (align) {
+                                        ParagraphAlignment.Left -> "Kiri"
+                                        ParagraphAlignment.Center -> "Tengah"
+                                        ParagraphAlignment.Right -> "Kanan"
+                                        ParagraphAlignment.Justify -> "Rata Kanan-Kiri"
+                                    }
                                 )
                             }
-                        },
-                        label = { Text(preset.name) }
-                    )
+                        )
+                    }
+                }
+
+                NumberField("Indentasi Baris Pertama (em)", uiState.settings.paragraphOptions.firstLineIndentEm) { value ->
+                    onSettingsChange { copy(paragraphOptions = paragraphOptions.copy(firstLineIndentEm = value)) }
+                }
+                NumberField("Jarak Antar Paragraf (px)", uiState.settings.paragraphOptions.extraParagraphSpacing) { value ->
+                    onSettingsChange { copy(paragraphOptions = paragraphOptions.copy(extraParagraphSpacing = value)) }
                 }
             }
 
-            SectionTitle("Orientation")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Orientation.values().forEach { orientation ->
-                    FilterChip(
-                        selected = uiState.settings.orientation == orientation,
-                        onClick = { onSettingsChange { copy(orientation = orientation) } },
-                        label = { Text(orientation.name) }
-                    )
-                }
-            }
-
-            SectionTitle("Margins")
-            MarginFields(uiState.settings.margins) { margins ->
-                onSettingsChange { copy(margins = margins) }
-            }
-
-            SectionTitle("Theme colors")
-            ThemeSection(uiState.settings.themeOptions) { updated ->
-                onSettingsChange { copy(themeOptions = updated) }
-            }
-
-            SectionTitle("Fonts")
-            FontFamilySelector(
-                label = "Title",
-                selected = uiState.settings.fonts.titleFamily,
-                customFontUri = uiState.settings.fonts.titleFontUri,
-                onChange = { option ->
-                    onSettingsChange {
-                        copy(
-                            fonts = fonts.copy(
-                                titleFamily = option,
-                                titleFontUri = if (option == FontFamilyOption.Custom) fonts.titleFontUri else null
-                            )
-                        )
-                    }
-                },
-                onPickCustomFont = { titleFontPicker.launch(fontMimeTypes) },
-                onClearCustomFont = { applyCustomFont(FontTarget.Title, null) }
-            )
-            FontFamilySelector(
-                label = "Heading",
-                selected = uiState.settings.fonts.headingFamily,
-                customFontUri = uiState.settings.fonts.headingFontUri,
-                onChange = { option ->
-                    onSettingsChange {
-                        copy(
-                            fonts = fonts.copy(
-                                headingFamily = option,
-                                headingFontUri = if (option == FontFamilyOption.Custom) fonts.headingFontUri else null
-                            )
-                        )
-                    }
-                },
-                onPickCustomFont = { headingFontPicker.launch(fontMimeTypes) },
-                onClearCustomFont = { applyCustomFont(FontTarget.Heading, null) }
-            )
-            FontFamilySelector(
-                label = "Body",
-                selected = uiState.settings.fonts.bodyFamily,
-                customFontUri = uiState.settings.fonts.bodyFontUri,
-                onChange = { option ->
-                    onSettingsChange {
-                        copy(
-                            fonts = fonts.copy(
-                                bodyFamily = option,
-                                bodyFontUri = if (option == FontFamilyOption.Custom) fonts.bodyFontUri else null
-                            )
-                        )
-                    }
-                },
-                onPickCustomFont = { bodyFontPicker.launch(fontMimeTypes) },
-                onClearCustomFont = { applyCustomFont(FontTarget.Body, null) }
-            )
-            NumberField("Title size (pt)", uiState.settings.fonts.titleSize) {
-                onSettingsChange { copy(fonts = fonts.copy(titleSize = it)) }
-            }
-            NumberField("Chapter size (pt)", uiState.settings.fonts.chapterSize) {
-                onSettingsChange { copy(fonts = fonts.copy(chapterSize = it)) }
-            }
-            NumberField("Heading size (pt)", uiState.settings.fonts.headingSize) {
-                onSettingsChange { copy(fonts = fonts.copy(headingSize = it)) }
-            }
-            NumberField("Body size (pt)", uiState.settings.fonts.bodySize) {
-                onSettingsChange { copy(fonts = fonts.copy(bodySize = it)) }
-            }
-            NumberField("Line spacing", uiState.settings.fonts.lineHeight) {
-                onSettingsChange { copy(fonts = fonts.copy(lineHeight = it)) }
-            }
-
-            SectionTitle("Paragraphs")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ParagraphAlignment.values().forEach { align ->
-                    FilterChip(
-                        selected = uiState.settings.paragraphOptions.alignment == align,
-                        onClick = { onSettingsChange { copy(paragraphOptions = paragraphOptions.copy(alignment = align)) } },
-                        label = { Text(align.name) }
-                    )
-                }
-            }
-            NumberField("First line indent (em)", uiState.settings.paragraphOptions.firstLineIndentEm) {
-                onSettingsChange { copy(paragraphOptions = paragraphOptions.copy(firstLineIndentEm = it)) }
-            }
-            NumberField("Extra paragraph spacing (px)", uiState.settings.paragraphOptions.extraParagraphSpacing) {
-                onSettingsChange { copy(paragraphOptions = paragraphOptions.copy(extraParagraphSpacing = it)) }
-            }
-
-            SectionTitle("Footer")
-            FooterControls(uiState.settings.footerOptions) { updated ->
-                onSettingsChange { copy(footerOptions = updated) }
-            }
-
-            if (uiState.isGenerating) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !uiState.isGenerating,
-                onClick = onPreview
+            // Section 8: Footer
+            StudioCard(
+                icon = Icons.Default.ViewHeadline,
+                title = "Pengaturan Footer"
             ) {
-                Text("Preview")
+                FooterControls(uiState.settings.footerOptions) { updated ->
+                    onSettingsChange { copy(footerOptions = updated) }
+                }
             }
 
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.bodyUri != null && !uiState.isGenerating,
-                onClick = onGenerate
+            // Action Save Default
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Generate PDF")
-            }
-
-            TextButton(onClick = onSaveDefaults) {
-                Text("Save as new default")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Simpan Pengaturan Default", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Gunakan konfigurasi saat ini untuk dokumen baru", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    FilledTonalButton(
+                        shape = RoundedCornerShape(10.dp),
+                        onClick = onSaveDefaults
+                    ) {
+                        Icon(Icons.Default.Bookmark, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Simpan")
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -350,43 +535,193 @@ fun MainScreen(
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(text = text, fontWeight = FontWeight.SemiBold)
+private fun HeroWorkspaceCard(
+    coverUri: Uri?,
+    onVisualEditor: () -> Unit,
+    onPickCover: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(IndigoDark, IndigoPrimary, IndigoPrimaryVariant)
+                    )
+                )
+                .padding(20.dp)
+        ) {
+            Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.White.copy(alpha = 0.2f),
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Ruang Kerja Dokumen",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "Edit naskah & kelola berkas penyusun ebook Anda dengan nyaman.",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 13.sp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp),
+                        onClick = onVisualEditor,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = IndigoDark
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Editor Visual", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp),
+                        onClick = onPickCover,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White.copy(alpha = 0.2f),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            if (coverUri == null) "Sampul" else "Ganti Sampul",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StudioCard(
+    icon: ImageVector,
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            content()
+        }
+    }
 }
 
 @Composable
 private fun MetadataFields(metadata: Metadata, onChange: (Metadata.() -> Metadata) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         listOf(
-            "Title" to metadata.title,
-            "Subtitle" to metadata.subtitle,
-            "Chapter" to metadata.chapter,
-            "Author" to metadata.author,
-            "Translator" to metadata.translator,
-            "Publisher" to metadata.publisher,
-            "Year" to metadata.publicationYear,
-            "Language" to metadata.language,
-            "Notes" to metadata.notes
-        ).forEach { (label, value) ->
+            "Judul Utama" to metadata.title,
+            "Subjudul" to metadata.subtitle,
+            "Bab / Bagian" to metadata.chapter,
+            "Penulis / Pengarang" to metadata.author,
+            "Penerjemah" to metadata.translator,
+            "Penerbit" to metadata.publisher,
+            "Tahun Terbit" to metadata.publicationYear,
+            "Bahasa" to metadata.language,
+            "Catatan TAMBAHAN" to metadata.notes
+        ).forEach { pair ->
+            val fieldLabel = pair.first
+            val fieldValue = pair.second
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
-                value = value,
+                value = fieldValue,
                 onValueChange = { newValue ->
                     onChange {
-                        when (label) {
-                            "Title" -> copy(title = newValue)
-                            "Subtitle" -> copy(subtitle = newValue)
-                            "Chapter" -> copy(chapter = newValue)
-                            "Author" -> copy(author = newValue)
-                            "Translator" -> copy(translator = newValue)
-                            "Publisher" -> copy(publisher = newValue)
-                            "Year" -> copy(publicationYear = newValue)
-                            "Language" -> copy(language = newValue)
+                        when (fieldLabel) {
+                            "Judul Utama" -> copy(title = newValue)
+                            "Subjudul" -> copy(subtitle = newValue)
+                            "Bab / Bagian" -> copy(chapter = newValue)
+                            "Penulis / Pengarang" -> copy(author = newValue)
+                            "Penerjemah" -> copy(translator = newValue)
+                            "Penerbit" -> copy(publisher = newValue)
+                            "Tahun Terbit" -> copy(publicationYear = newValue)
+                            "Bahasa" -> copy(language = newValue)
                             else -> copy(notes = newValue)
                         }
                     }
                 },
-                label = { Text(label) }
+                label = { Text(fieldLabel) },
+                singleLine = fieldLabel != "Catatan TAMBAHAN",
+                shape = RoundedCornerShape(10.dp)
             )
         }
     }
@@ -394,26 +729,40 @@ private fun MetadataFields(metadata: Metadata, onChange: (Metadata.() -> Metadat
 
 @Composable
 private fun FooterControls(footer: FooterOptions, onChange: (FooterOptions) -> Unit) {
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Show footer", modifier = Modifier.weight(1f))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Tampilkan Footer", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
             Switch(checked = footer.showFooter, onCheckedChange = { onChange(footer.copy(showFooter = it)) })
         }
-        if (footer.showFooter) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Title", modifier = Modifier.weight(1f))
-                Switch(checked = footer.showTitle, onCheckedChange = { onChange(footer.copy(showTitle = it)) })
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Chapter", modifier = Modifier.weight(1f))
-                Switch(checked = footer.showChapter, onCheckedChange = { onChange(footer.copy(showChapter = it)) })
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Page number", modifier = Modifier.weight(1f))
-                Switch(checked = footer.showPageNumber, onCheckedChange = { onChange(footer.copy(showPageNumber = it)) })
-            }
-            NumberField("Footer size (pt)", footer.fontSize) {
-                onChange(footer.copy(fontSize = it))
+        AnimatedVisibility(visible = footer.showFooter) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Tampilkan Judul", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Switch(checked = footer.showTitle, onCheckedChange = { onChange(footer.copy(showTitle = it)) })
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Tampilkan Bab", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Switch(checked = footer.showChapter, onCheckedChange = { onChange(footer.copy(showChapter = it)) })
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Tampilkan Nomor Halaman", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Switch(checked = footer.showPageNumber, onCheckedChange = { onChange(footer.copy(showPageNumber = it)) })
+                }
+                NumberField("Ukuran Font Footer (pt)", footer.fontSize) {
+                    onChange(footer.copy(fontSize = it))
+                }
             }
         }
     }
@@ -430,46 +779,71 @@ private fun NumberField(label: String, value: Float, onValueChange: (Float) -> U
             it.toFloatOrNull()?.let(onValueChange)
         },
         label = { Text(label) },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        singleLine = true,
+        shape = RoundedCornerShape(10.dp)
     )
 }
 
 @Composable
 private fun MarginFields(margins: Margins, onChange: (Margins) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        NumberField("Top (px)", margins.top) { onChange(margins.copy(top = it)) }
-        NumberField("Bottom (px)", margins.bottom) { onChange(margins.copy(bottom = it)) }
-        NumberField("Left (px)", margins.start) { onChange(margins.copy(start = it)) }
-        NumberField("Right (px)", margins.end) { onChange(margins.copy(end = it)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.weight(1f)) {
+                NumberField("Atas", margins.top) { onChange(margins.copy(top = it)) }
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                NumberField("Bawah", margins.bottom) { onChange(margins.copy(bottom = it)) }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.weight(1f)) {
+                NumberField("Kiri", margins.start) { onChange(margins.copy(start = it)) }
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                NumberField("Kanan", margins.end) { onChange(margins.copy(end = it)) }
+            }
+        }
     }
 }
 
 @Composable
 private fun ThemeSection(options: ThemeOptions, onChange: (ThemeOptions) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(
-            "System" to null,
-            "Light" to false,
-            "Dark" to true
-        ).forEach { (label, value) ->
-            FilterChip(
-                selected = options.useDark == value,
-                onClick = { onChange(options.copy(useDark = value)) },
-                label = { Text(label) }
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Mode Tampilan Aplikasi", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                "Sistem" to null,
+                "Terang" to false,
+                "Gelap" to true
+            ).forEach { pair ->
+                val modeLabel = pair.first
+                val modeVal = pair.second
+                FilterChip(
+                    selected = options.useDark == modeVal,
+                    onClick = { onChange(options.copy(useDark = modeVal)) },
+                    label = { Text(modeLabel) }
+                )
+            }
         }
-    }
-    Spacer(modifier = Modifier.height(8.dp))
-    ColorField("Page background", options.pageBackground) {
-        onChange(options.copy(pageBackground = it))
-    }
-    ColorField("Text color", options.textColor) {
-        onChange(options.copy(textColor = it))
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        ColorPickerField("Warna Latar Halaman PDF", options.pageBackground) {
+            onChange(options.copy(pageBackground = it))
+        }
+        ColorPickerField("Warna Teks PDF", options.textColor) {
+            onChange(options.copy(textColor = it))
+        }
     }
 }
 
 @Composable
-private fun ColorField(label: String, color: androidx.compose.ui.graphics.Color, onChange: (androidx.compose.ui.graphics.Color) -> Unit) {
+private fun ColorPickerField(
+    label: String,
+    color: Color,
+    onChange: (Color) -> Unit
+) {
     var text by remember(color) { mutableStateOf(color.toHexString()) }
     OutlinedTextField(
         modifier = Modifier.fillMaxWidth(),
@@ -478,7 +852,18 @@ private fun ColorField(label: String, color: androidx.compose.ui.graphics.Color,
             text = it
             parseColor(it)?.let(onChange)
         },
-        label = { Text(label) }
+        label = { Text(label) },
+        leadingIcon = {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(color)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+            )
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(10.dp)
     )
 }
 
@@ -491,8 +876,8 @@ private fun FontFamilySelector(
     onPickCustomFont: () -> Unit,
     onClearCustomFont: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FontFamilyOption.values().forEach { option ->
                 FilterChip(
@@ -504,27 +889,33 @@ private fun FontFamilySelector(
         }
         if (selected == FontFamilyOption.Custom) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilledTonalButton(onClick = onPickCustomFont) {
-                    Text(if (customFontUri == null) "Pilih font" else "Ganti font")
+                FilledTonalButton(
+                    shape = RoundedCornerShape(8.dp),
+                    onClick = onPickCustomFont
+                ) {
+                    Text(if (customFontUri == null) "Pilih File Font" else "Ganti Font")
                 }
                 if (customFontUri != null) {
-                    val label = try {
+                    val fontName = try {
                         Uri.parse(customFontUri).lastPathSegment ?: customFontUri
                     } catch (_: Throwable) {
                         customFontUri
                     }
                     Text(
-                        text = label,
+                        text = fontName,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 12.sp
                     )
-                    TextButton(onClick = onClearCustomFont) {
-                        Text("Hapus")
+                    IconButton(onClick = onClearCustomFont) {
+                        Icon(Icons.Default.Close, contentDescription = "Hapus Custom Font", tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -532,17 +923,17 @@ private fun FontFamilySelector(
     }
 }
 
-private fun androidx.compose.ui.graphics.Color.toHexString(): String {
+private fun Color.toHexString(): String {
     val r = (red * 255).toInt()
     val g = (green * 255).toInt()
     val b = (blue * 255).toInt()
     return String.format("#%02X%02X%02X", r, g, b)
 }
 
-private fun parseColor(input: String): androidx.compose.ui.graphics.Color? {
+private fun parseColor(input: String): Color? {
     val hexRegex = Regex("^#?[0-9a-fA-F]{6}$")
     if (!hexRegex.matches(input)) return null
     val clean = input.removePrefix("#")
     val color = clean.toLong(16).toInt()
-    return androidx.compose.ui.graphics.Color(color or (0xFF shl 24))
+    return Color(color or (0xFF shl 24))
 }

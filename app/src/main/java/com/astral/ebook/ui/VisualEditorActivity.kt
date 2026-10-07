@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +24,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -48,10 +52,13 @@ import androidx.compose.material.icons.filled.VerticalAlignBottom
 import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -59,6 +66,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,6 +77,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -273,7 +282,7 @@ class MarkupVisualTransformation(
                             val placeholder = "🖼️ [Gambar]"
                             val imgTransStart = builder.length
                             builder.append(placeholder)
-                            builder.addStyle(SpanStyle(color = Color(0xFF1976D2), fontWeight = FontWeight.Bold), imgTransStart, builder.length)
+                            builder.addStyle(SpanStyle(color = Color(0xFF4F46E5), fontWeight = FontWeight.Bold), imgTransStart, builder.length)
                             for (k in 0 until placeholder.length) {
                                 transToOrig[imgTransStart + k] = origIdx
                             }
@@ -470,7 +479,7 @@ class VisualEditorActivity : ComponentActivity() {
         val settings = settingsBundle?.toEbookSettings() ?: EbookSettings()
 
         setContent {
-            AstralEbookTheme {
+            AstralEbookTheme(useDarkTheme = settings.themeOptions.useDark ?: false) {
                 VisualEditorScreen(
                     initialContent = initialContent,
                     settings = settings,
@@ -502,11 +511,9 @@ fun VisualEditorScreen(
     }
     var isCodeMode by remember { mutableStateOf(false) }
 
-    // Scroll state and Coroutine Scope
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Find and Replace states
     var isSearchVisible by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var replaceQuery by remember { mutableStateOf("") }
@@ -583,32 +590,60 @@ fun VisualEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (isCodeMode) "Code Editor" else "Visual Editor") },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (isCodeMode) Icons.Default.Code else Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = if (isCodeMode) "Editor Kode Raw" else "Editor Visual WYSIWYG",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
                     }
                 },
                 actions = {
                     IconButton(onClick = { scrollToTop() }) {
-                        Icon(Icons.Default.VerticalAlignTop, contentDescription = "Scroll to Top")
+                        Icon(Icons.Default.VerticalAlignTop, contentDescription = "Ke Atas")
                     }
                     IconButton(onClick = { scrollToBottom() }) {
-                        Icon(Icons.Default.VerticalAlignBottom, contentDescription = "Scroll to Bottom")
+                        Icon(Icons.Default.VerticalAlignBottom, contentDescription = "Ke Bawah")
                     }
                     IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
-                        Icon(Icons.Default.FindReplace, contentDescription = "Find & Replace")
+                        Icon(Icons.Default.FindReplace, contentDescription = "Cari & Ganti")
                     }
                     IconButton(onClick = { isCodeMode = !isCodeMode }) {
                         Icon(
                             imageVector = if (isCodeMode) Icons.Default.Visibility else Icons.Default.Code,
-                            contentDescription = if (isCodeMode) "Visual Mode" else "Code Mode"
+                            contentDescription = if (isCodeMode) "Mode Visual" else "Mode Kode"
                         )
                     }
                     IconButton(onClick = { onSave(textFieldValue.text) }) {
-                        Icon(Icons.Default.Check, contentDescription = "Save")
+                        Icon(Icons.Default.Check, contentDescription = "Simpan", tint = MaterialTheme.colorScheme.primary)
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
         }
     ) { padding ->
@@ -618,7 +653,7 @@ fun VisualEditorScreen(
                 .fillMaxSize()
                 .imePadding()
         ) {
-            if (isSearchVisible) {
+            AnimatedVisibility(visible = isSearchVisible) {
                 FindReplaceBar(
                     searchQuery = searchQuery,
                     onSearchQueryChange = {
@@ -743,7 +778,9 @@ fun VisualEditorScreen(
 
             val editorTextStyle = LocalTextStyle.current.copy(
                 textAlign = defaultAlignment,
-                textIndent = defaultTextIndent
+                textIndent = defaultTextIndent,
+                fontSize = 16.sp,
+                lineHeight = 24.sp
             )
 
             val imageUris = remember(textFieldValue.text) {
@@ -760,14 +797,14 @@ fun VisualEditorScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            text = "Gambar dalam Dokumen:",
-                            fontSize = 12.sp,
+                            text = "Gambar dalam Dokumen (${imageUris.size}):",
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
                         )
                         imageUris.forEach { uriStr ->
                             ImagePreviewCard(
@@ -799,8 +836,10 @@ fun VisualEditorScreen(
                         }
                         textFieldValue = incoming
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = if (isCodeMode) LocalTextStyle.current else editorTextStyle,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    textStyle = if (isCodeMode) LocalTextStyle.current.copy(fontSize = 14.sp) else editorTextStyle,
                     visualTransformation = if (isCodeMode) VisualTransformation.None else visualTransform,
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
@@ -808,7 +847,7 @@ fun VisualEditorScreen(
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent
                     ),
-                    placeholder = { Text("Mulai menulis...") }
+                    placeholder = { Text("Mulai menulis naskah Anda di sini...", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 )
             }
         }
@@ -836,24 +875,27 @@ fun ImagePreviewCard(
         }
     }
 
-    Surface(
-        tonalElevation = 1.dp,
-        shape = RoundedCornerShape(8.dp),
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
         modifier = Modifier
-            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .padding(vertical = 4.dp)
             .fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(8.dp),
+            modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap!!,
-                    contentDescription = "Image preview",
+                    contentDescription = "Preview Gambar",
                     modifier = Modifier
-                        .height(100.dp)
+                        .height(90.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .weight(1f, fill = false),
                     contentScale = ContentScale.Fit
                 )
@@ -862,14 +904,14 @@ fun ImagePreviewCard(
                     modifier = Modifier
                         .height(80.dp)
                         .weight(1f, fill = false)
-                        .background(Color.LightGray.copy(alpha = 0.3f)),
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("[Gambar: ${uriString.takeLast(25)}]", fontSize = 12.sp, color = Color.Gray)
+                    Text("[Gambar: ${uriString.takeLast(25)}]", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete image", tint = Color.Red)
+                Icon(Icons.Default.Delete, contentDescription = "Hapus Gambar", tint = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -890,10 +932,11 @@ fun FindReplaceBar(
     onClose: () -> Unit
 ) {
     Surface(
-        tonalElevation = 3.dp,
+        tonalElevation = 4.dp,
+        shadowElevation = 4.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -903,15 +946,17 @@ fun FindReplaceBar(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Cari...", fontSize = 14.sp) },
+                    placeholder = { Text("Cari kata...", fontSize = 13.sp) },
                     singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
+                    textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 Text(
                     text = if (searchQuery.isEmpty()) "" else if (matchCount > 0) "${currentMatchIndex + 1}/$matchCount" else "0/0",
                     fontSize = 12.sp,
-                    color = Color.Gray
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
                 )
 
                 IconButton(onClick = onPrevMatch, enabled = matchCount > 0) {
@@ -925,8 +970,6 @@ fun FindReplaceBar(
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -936,14 +979,16 @@ fun FindReplaceBar(
                     value = replaceQuery,
                     onValueChange = onReplaceQueryChange,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Ganti dengan...", fontSize = 14.sp) },
+                    placeholder = { Text("Ganti dengan...", fontSize = 13.sp) },
                     singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp)
+                    textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 Button(
                     onClick = onReplace,
                     enabled = matchCount > 0,
+                    shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     Text("Ganti", fontSize = 12.sp)
@@ -952,6 +997,7 @@ fun FindReplaceBar(
                 Button(
                     onClick = onReplaceAll,
                     enabled = matchCount > 0,
+                    shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     Text("Semua", fontSize = 12.sp)
@@ -1071,31 +1117,36 @@ fun FormattingToolbar(
     onAddImage: () -> Unit
 ) {
     Surface(
-        tonalElevation = 2.dp,
+        tonalElevation = 3.dp,
+        shadowElevation = 2.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
-                .padding(8.dp)
+                .padding(horizontal = 4.dp, vertical = 6.dp)
                 .fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            ToolbarButton(Icons.Default.FormatBold, "Bold") { onApplyFormatting("<b>", "</b>") }
-            ToolbarButton(Icons.Default.FormatItalic, "Italic") { onApplyFormatting("<i>", "</i>") }
-            ToolbarButton(Icons.Default.FormatUnderlined, "Underline") { onApplyFormatting("<u>", "</u>") }
-            ToolbarButton(Icons.Default.FormatStrikethrough, "Strikethrough") { onApplyFormatting("<s>", "</s>") }
-            ToolbarButton(Icons.Default.Image, "Image") { onAddImage() }
-            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "Left") { onSetAlignment(ParagraphAlignment.Left) }
-            ToolbarButton(Icons.Default.FormatAlignCenter, "Center") { onSetAlignment(ParagraphAlignment.Center) }
-            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignRight, "Right") { onSetAlignment(ParagraphAlignment.Right) }
-            ToolbarButton(Icons.Default.FormatAlignJustify, "Justify") { onSetAlignment(ParagraphAlignment.Justify) }
+            ToolbarButton(Icons.Default.FormatBold, "Tebal") { onApplyFormatting("<b>", "</b>") }
+            ToolbarButton(Icons.Default.FormatItalic, "Miring") { onApplyFormatting("<i>", "</i>") }
+            ToolbarButton(Icons.Default.FormatUnderlined, "Garis Bawah") { onApplyFormatting("<u>", "</u>") }
+            ToolbarButton(Icons.Default.FormatStrikethrough, "Coret") { onApplyFormatting("<s>", "</s>") }
+            ToolbarButton(Icons.Default.Image, "Gambar") { onAddImage() }
+            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "Kiri") { onSetAlignment(ParagraphAlignment.Left) }
+            ToolbarButton(Icons.Default.FormatAlignCenter, "Tengah") { onSetAlignment(ParagraphAlignment.Center) }
+            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignRight, "Kanan") { onSetAlignment(ParagraphAlignment.Right) }
+            ToolbarButton(Icons.Default.FormatAlignJustify, "Rata Kanan Kiri") { onSetAlignment(ParagraphAlignment.Justify) }
         }
     }
 }
 
 @Composable
 fun ToolbarButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Icon(icon, contentDescription = contentDescription)
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(38.dp)
+    ) {
+        Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
     }
 }
