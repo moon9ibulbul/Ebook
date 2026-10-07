@@ -610,7 +610,7 @@ fun VisualEditorScreen(
                             }
                         }
                         Text(
-                            text = if (isCodeMode) "Editor Kode Raw" else "Editor Visual WYSIWYG",
+                            text = if (isCodeMode) "Kode Raw" else "Editor",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp
                         )

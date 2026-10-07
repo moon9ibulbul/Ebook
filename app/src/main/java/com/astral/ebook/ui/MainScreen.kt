@@ -1,12 +1,15 @@
 package com.astral.ebook.ui
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,14 +28,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FormatAlignLeft
+import androidx.compose.material.icons.filled.FormatAlignCenter
+import androidx.compose.material.icons.filled.FormatAlignJustify
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Straighten
@@ -72,7 +81,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -90,10 +102,13 @@ import com.astral.ebook.model.Orientation
 import com.astral.ebook.model.ParagraphAlignment
 import com.astral.ebook.model.Presets
 import com.astral.ebook.model.ThemeOptions
+import com.astral.ebook.repository.openImageStream
 import com.astral.ebook.ui.theme.IndigoDark
 import com.astral.ebook.ui.theme.IndigoPrimary
 import com.astral.ebook.ui.theme.IndigoPrimaryVariant
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -272,16 +287,24 @@ fun MainScreen(
                 onPickCover = { coverPicker.launch(arrayOf("image/*")) }
             )
 
+            // Cover Preview Card (When loaded)
+            if (uiState.coverUri != null) {
+                CoverPreviewCard(
+                    coverUri = uiState.coverUri,
+                    onRemoveCover = { onPickCover(null) }
+                )
+            }
+
             // Section 1: Metadata
-            StudioCard(
-                icon = Icons.Default.Article,
+            CollapsibleStudioCard(
+                icon = Icons.AutoMirrored.Filled.Article,
                 title = "Metadata Buku"
             ) {
                 MetadataFields(uiState.settings.metadata, onMetadataChange)
             }
 
             // Section 2: Sampul & Cover Options
-            StudioCard(
+            CollapsibleStudioCard(
                 icon = Icons.Default.Image,
                 title = "Opsi Sampul"
             ) {
@@ -300,7 +323,7 @@ fun MainScreen(
             }
 
             // Section 3: Preset Halaman & Orientasi
-            StudioCard(
+            CollapsibleStudioCard(
                 icon = Icons.Default.AutoAwesome,
                 title = "Halaman & Orientasi"
             ) {
@@ -345,7 +368,7 @@ fun MainScreen(
             }
 
             // Section 4: Margin
-            StudioCard(
+            CollapsibleStudioCard(
                 icon = Icons.Default.Straighten,
                 title = "Margin Halaman (px)"
             ) {
@@ -355,7 +378,7 @@ fun MainScreen(
             }
 
             // Section 5: Tema & Warna
-            StudioCard(
+            CollapsibleStudioCard(
                 icon = Icons.Default.Palette,
                 title = "Tema & Warna Halaman"
             ) {
@@ -365,7 +388,7 @@ fun MainScreen(
             }
 
             // Section 6: Font & Tipografi
-            StudioCard(
+            CollapsibleStudioCard(
                 icon = Icons.Default.TextFields,
                 title = "Tipografi & Font"
             ) {
@@ -457,26 +480,23 @@ fun MainScreen(
             }
 
             // Section 7: Paragraf
-            StudioCard(
-                icon = Icons.Default.FormatAlignLeft,
+            CollapsibleStudioCard(
+                icon = Icons.AutoMirrored.Filled.FormatAlignLeft,
                 title = "Pengaturan Paragraf"
             ) {
                 Text("Rata Teks Default", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ParagraphAlignment.values().forEach { align ->
+                        val alignIcon = when (align) {
+                            ParagraphAlignment.Left -> Icons.AutoMirrored.Filled.FormatAlignLeft
+                            ParagraphAlignment.Center -> Icons.Default.FormatAlignCenter
+                            ParagraphAlignment.Right -> Icons.AutoMirrored.Filled.FormatAlignRight
+                            ParagraphAlignment.Justify -> Icons.Default.FormatAlignJustify
+                        }
                         FilterChip(
                             selected = uiState.settings.paragraphOptions.alignment == align,
                             onClick = { onSettingsChange { copy(paragraphOptions = paragraphOptions.copy(alignment = align)) } },
-                            label = {
-                                Text(
-                                    when (align) {
-                                        ParagraphAlignment.Left -> "Kiri"
-                                        ParagraphAlignment.Center -> "Tengah"
-                                        ParagraphAlignment.Right -> "Kanan"
-                                        ParagraphAlignment.Justify -> "Rata Kanan-Kiri"
-                                    }
-                                )
-                            }
+                            label = { Icon(alignIcon, contentDescription = align.name, modifier = Modifier.size(20.dp)) }
                         )
                     }
                 }
@@ -490,7 +510,7 @@ fun MainScreen(
             }
 
             // Section 8: Footer
-            StudioCard(
+            CollapsibleStudioCard(
                 icon = Icons.Default.ViewHeadline,
                 title = "Pengaturan Footer"
             ) {
@@ -581,14 +601,6 @@ private fun HeroWorkspaceCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "Edit naskah & kelola berkas penyusun ebook Anda dengan nyaman.",
-                    color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 13.sp
-                )
-
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
@@ -608,7 +620,7 @@ private fun HeroWorkspaceCard(
                     ) {
                         Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Editor Visual", fontWeight = FontWeight.Bold)
+                        Text("Editor", fontWeight = FontWeight.Bold)
                     }
 
                     Button(
@@ -637,50 +649,161 @@ private fun HeroWorkspaceCard(
 }
 
 @Composable
-private fun StudioCard(
-    icon: ImageVector,
-    title: String,
-    content: @Composable ColumnScope.() -> Unit
+private fun CoverPreviewCard(
+    coverUri: Uri,
+    onRemoveCover: () -> Unit
 ) {
+    val context = LocalContext.current
+    var bitmap by remember(coverUri) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(coverUri) {
+        withContext(Dispatchers.IO) {
+            try {
+                openImageStream(context, coverUri.toString())?.use { stream ->
+                    val decoded = BitmapFactory.decodeStream(stream)
+                    if (decoded != null) {
+                        bitmap = decoded.asImageBitmap()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Row(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap!!,
+                        contentDescription = "Preview Sampul",
+                        modifier = Modifier
+                            .height(80.dp)
+                            .width(60.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .height(80.dp)
+                            .width(60.dp)
+                            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+
+                Column {
+                    Text("Gambar Sampul Terpasang", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(
+                        text = coverUri.lastPathSegment ?: "Sampul Ebook",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
-            content()
+            IconButton(onClick = onRemoveCover) {
+                Icon(Icons.Default.Delete, contentDescription = "Hapus Sampul", tint = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollapsibleStudioCard(
+    icon: ImageVector,
+    title: String,
+    initialExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    var expanded by remember { mutableStateOf(initialExpanded) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Tutup" else "Buka",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    content()
+                }
+            }
         }
     }
 }
