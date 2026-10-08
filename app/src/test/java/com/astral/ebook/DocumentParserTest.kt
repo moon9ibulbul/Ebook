@@ -131,6 +131,90 @@ class DocumentParserTest {
     }
 
     @Test
+    fun testCleanUpMarkupRemovesIncompleteTagFragments() {
+        val brokenInput = "<strong>Bab 12</strong"
+        val cleaned = com.astral.ebook.ui.cleanUpMarkup(brokenInput)
+        assertEquals("<strong>Bab 12</strong>", cleaned)
+
+        val corruptedTrash = "Bab 12</strongAndTrash"
+        val cleanedTrash = com.astral.ebook.ui.cleanUpMarkup(corruptedTrash)
+        assertEquals("Bab 12", cleanedTrash)
+    }
+
+    @Test
+    fun testMarkupVisualTransformationOffsetMappingForStyledText() {
+        val transformation = com.astral.ebook.ui.MarkupVisualTransformation()
+        val textWithMarkup = "<strong>Bab 12</strong>"
+        val result = transformation.filter(androidx.compose.ui.text.AnnotatedString(textWithMarkup))
+
+        assertEquals("Bab 12", result.text.text)
+        val offsetMapping = result.offsetMapping
+
+        // Visual offset 0 ('B') maps to original offset 8 ('B' in <strong>Bab 12</strong>)
+        assertEquals(8, offsetMapping.transformedToOriginal(0))
+        // Visual offset 6 (after '2') maps to original offset 23 (after </strong>)
+        assertEquals(23, offsetMapping.transformedToOriginal(6))
+        // Original offset 14 (after '2') maps to visual offset 6
+        assertEquals(6, offsetMapping.originalToTransformed(14))
+    }
+
+    @Test
+    fun testCleanUpMarkupRemovesEmptyTagsAndUnclosedTags() {
+        val emptyTagText = "Kata <b></b> normal <i></i>"
+        val cleanedEmpty = com.astral.ebook.ui.cleanUpMarkup(emptyTagText)
+        assertEquals("Kata  normal ", cleanedEmpty)
+
+        val unclosedTagText = "Kata <b>bold tanpa tutup"
+        val cleanedUnclosed = com.astral.ebook.ui.cleanUpMarkup(unclosedTagText)
+        assertEquals("Kata <b>bold tanpa tutup</b>", cleanedUnclosed)
+
+        val strayFragment = "Kata <b>bold</b>> fragmen"
+        val cleanedStray = com.astral.ebook.ui.cleanUpMarkup(strayFragment)
+        assertEquals("Kata <b>bold</b> fragmen", cleanedStray)
+    }
+
+    @Test
+    fun testMultiParagraphAlignmentTransformation() {
+        val input = "Paragraf 1\nParagraf 2\n<p align=\"center\">Paragraf 3</p>"
+        val lines = input.split('\n')
+        val tag = "center"
+
+        val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+
+        val transformed = lines.map { line ->
+            var workingPara = line.trim()
+            var existingAlign: String? = null
+
+            var matched = true
+            while (matched) {
+                val htmlPMatch = htmlPAlign.find(workingPara)
+                if (htmlPMatch != null) {
+                    existingAlign = htmlPMatch.groupValues[1].ifEmpty { htmlPMatch.groupValues[2] }.lowercase()
+                    workingPara = htmlPMatch.groupValues[3].trim()
+                    continue
+                }
+                val centerMatch = centerTag.find(workingPara)
+                if (centerMatch != null) {
+                    existingAlign = "center"
+                    workingPara = centerMatch.groupValues[1].trim()
+                    continue
+                }
+                matched = false
+            }
+
+            if (existingAlign == tag) {
+                workingPara
+            } else {
+                "<p align=\"$tag\">$workingPara</p>"
+            }
+        }.joinToString("\n")
+
+        val expected = "<p align=\"center\">Paragraf 1</p>\n<p align=\"center\">Paragraf 2</p>\nParagraf 3"
+        assertEquals(expected, transformed)
+    }
+
+    @Test
     fun testLineContentTextIsLastInParagraph() {
         val line1 = com.astral.ebook.repository.LineContent.Text(
             segments = emptyList(),
