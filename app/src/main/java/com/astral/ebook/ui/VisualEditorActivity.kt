@@ -301,21 +301,18 @@ class MarkupVisualTransformation(
                             if (boldStart == null) boldStart = builder.length
                             i += 8
                         }
-                        working.regionMatches(i, "</b>", 0, 4, ignoreCase = true) -> {
-                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                            boldStart?.let {
-                                builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
-                                boldStart = null
-                            }
-                            i += 4
-                        }
+                        working.regionMatches(i, "</b>", 0, 4, ignoreCase = true) ||
                         working.regionMatches(i, "</strong>", 0, 9, ignoreCase = true) -> {
-                            for (k in 0 until 9) origToTrans[origIdx + k] = builder.length
+                            val len = if (working.regionMatches(i, "</b>", 0, 4, ignoreCase = true)) 4 else 9
+                            for (k in 0 until len) origToTrans[origIdx + k] = builder.length
                             boldStart?.let {
                                 builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
                                 boldStart = null
                             }
-                            i += 9
+                            if (transToOrig[builder.length] == 0) {
+                                transToOrig[builder.length] = origIdx
+                            }
+                            i += len
                         }
                         working.regionMatches(i, "<i>", 0, 3, ignoreCase = true) -> {
                             for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
@@ -327,21 +324,18 @@ class MarkupVisualTransformation(
                             if (italicStart == null) italicStart = builder.length
                             i += 4
                         }
-                        working.regionMatches(i, "</i>", 0, 4, ignoreCase = true) -> {
-                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                            italicStart?.let {
-                                builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
-                                italicStart = null
-                            }
-                            i += 4
-                        }
+                        working.regionMatches(i, "</i>", 0, 4, ignoreCase = true) ||
                         working.regionMatches(i, "</em>", 0, 5, ignoreCase = true) -> {
-                            for (k in 0 until 5) origToTrans[origIdx + k] = builder.length
+                            val len = if (working.regionMatches(i, "</i>", 0, 4, ignoreCase = true)) 4 else 5
+                            for (k in 0 until len) origToTrans[origIdx + k] = builder.length
                             italicStart?.let {
                                 builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
                                 italicStart = null
                             }
-                            i += 5
+                            if (transToOrig[builder.length] == 0) {
+                                transToOrig[builder.length] = origIdx
+                            }
+                            i += len
                         }
                         working.regionMatches(i, "<u>", 0, 3, ignoreCase = true) -> {
                             for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
@@ -353,6 +347,9 @@ class MarkupVisualTransformation(
                             underlineStart?.let {
                                 builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, builder.length)
                                 underlineStart = null
+                            }
+                            if (transToOrig[builder.length] == 0) {
+                                transToOrig[builder.length] = origIdx
                             }
                             i += 4
                         }
@@ -380,6 +377,9 @@ class MarkupVisualTransformation(
                             strikeStart?.let {
                                 builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, builder.length)
                                 strikeStart = null
+                            }
+                            if (transToOrig[builder.length] == 0) {
+                                transToOrig[builder.length] = origIdx
                             }
                             i += len
                         }
@@ -688,15 +688,104 @@ fun VisualEditorScreen(
             }
 
             FormattingToolbar(
-                onApplyFormatting = { prefix, suffix ->
+                onApplyFormatting = { tag ->
                     val start = textFieldValue.selection.min
                     val end = textFieldValue.selection.max
                     val text = textFieldValue.text
-                    val selectedText = text.substring(start, end)
 
-                    val newText = text.substring(0, start) + prefix + selectedText + suffix + text.substring(end)
-                    val newSelection = TextRange(start + prefix.length, start + prefix.length + selectedText.length)
-                    textFieldValue = TextFieldValue(newText, newSelection)
+                    val isBold = tag in listOf("b", "bold")
+                    val isItalic = tag in listOf("i", "italic")
+                    val isUnderline = tag in listOf("u", "underline")
+                    val isStrike = tag in listOf("s", "strike", "strikethrough")
+
+                    val openPattern = when {
+                        isBold -> Regex("<(?:b|strong)\\b[^>]*>", RegexOption.IGNORE_CASE)
+                        isItalic -> Regex("<(?:i|em)\\b[^>]*>", RegexOption.IGNORE_CASE)
+                        isUnderline -> Regex("<u\\b[^>]*>", RegexOption.IGNORE_CASE)
+                        isStrike -> Regex("<(?:s|del|strike)\\b[^>]*>", RegexOption.IGNORE_CASE)
+                        else -> Regex("<$tag\\b[^>]*>", RegexOption.IGNORE_CASE)
+                    }
+
+                    val closePattern = when {
+                        isBold -> Regex("</(?:b|strong)>", RegexOption.IGNORE_CASE)
+                        isItalic -> Regex("</(?:i|em)>", RegexOption.IGNORE_CASE)
+                        isUnderline -> Regex("</u>", RegexOption.IGNORE_CASE)
+                        isStrike -> Regex("</(?:s|del|strike)>", RegexOption.IGNORE_CASE)
+                        else -> Regex("</$tag>", RegexOption.IGNORE_CASE)
+                    }
+
+                    val stripRegex = when {
+                        isBold -> Regex("</?(?:b|strong)\\b[^>]*>", RegexOption.IGNORE_CASE)
+                        isItalic -> Regex("</?(?:i|em)\\b[^>]*>", RegexOption.IGNORE_CASE)
+                        isUnderline -> Regex("</?u\\b[^>]*>", RegexOption.IGNORE_CASE)
+                        isStrike -> Regex("</?(?:s|del|strike)\\b[^>]*>", RegexOption.IGNORE_CASE)
+                        else -> Regex("</?$tag\\b[^>]*>", RegexOption.IGNORE_CASE)
+                    }
+
+                    val (openTagStr, closeTagStr) = when {
+                        isBold -> Pair("<b>", "</b>")
+                        isItalic -> Pair("<i>", "</i>")
+                        isUnderline -> Pair("<u>", "</u>")
+                        isStrike -> Pair("<s>", "</s>")
+                        else -> Pair("<$tag>", "</$tag>")
+                    }
+
+                    val selectedText = text.substring(start, end)
+                    val containsTag = stripRegex.containsMatchIn(selectedText)
+
+                    val textBefore = text.substring(0, start)
+                    val textAfter = text.substring(end)
+
+                    val openBefore = openPattern.findAll(textBefore).lastOrNull()
+                    val closeBefore = closePattern.findAll(textBefore).lastOrNull()
+                    val isEnclosedBefore = openBefore != null && (closeBefore == null || openBefore.range.first > closeBefore.range.first)
+
+                    val openAfter = openPattern.findAll(textAfter).firstOrNull()
+                    val closeAfter = closePattern.findAll(textAfter).firstOrNull()
+                    val isEnclosedAfter = closeAfter != null && (openAfter == null || closeAfter.range.first < openAfter.range.first)
+
+                    val isEnclosed = isEnclosedBefore && isEnclosedAfter
+
+                    val newText: String
+                    val newSelStart: Int
+                    val newSelEnd: Int
+
+                    if (containsTag || isEnclosed) {
+                        var tempBefore = textBefore
+                        var tempAfter = textAfter
+
+                        if (isEnclosed) {
+                            val openMatch = openBefore!!
+                            val closeMatch = closeAfter!!
+                            tempBefore = textBefore.removeRange(openMatch.range)
+                            val closeMatchAdjustedStart = closeMatch.range.first
+                            val closeMatchAdjustedEnd = closeMatch.range.last + 1
+                            tempAfter = textAfter.removeRange(closeMatchAdjustedStart, closeMatchAdjustedEnd)
+                        }
+
+                        val cleanedSelected = selectedText.replace(stripRegex, "")
+                        newText = tempBefore + cleanedSelected + tempAfter
+
+                        val removedBeforeLen = textBefore.length - tempBefore.length
+                        newSelStart = (start - removedBeforeLen).coerceAtLeast(0)
+                        newSelEnd = newSelStart + cleanedSelected.length
+                    } else {
+                        if (start < end) {
+                            newText = textBefore + openTagStr + selectedText + closeTagStr + textAfter
+                            newSelStart = start + openTagStr.length
+                            newSelEnd = newSelStart + selectedText.length
+                        } else {
+                            newText = textBefore + openTagStr + closeTagStr + textAfter
+                            newSelStart = start + openTagStr.length
+                            newSelEnd = newSelStart
+                        }
+                    }
+
+                    val cleanedText = cleanUpMarkup(newText)
+                    textFieldValue = TextFieldValue(
+                        cleanedText,
+                        TextRange(newSelStart.coerceIn(0, cleanedText.length), newSelEnd.coerceIn(0, cleanedText.length))
+                    )
                 },
                 onSetAlignment = { align ->
                     val start = textFieldValue.selection.min
@@ -1042,7 +1131,7 @@ fun cleanUpMarkup(input: String): String {
 private fun cleanUpLineMarkup(line: String): String {
     if (line.isEmpty()) return ""
 
-    var working = line
+    var working = removeIncompleteTagFragments(line)
 
     val emptyInlineRegex = Regex("<(b|strong|i|em|u|s|del|strike)\\b[^>]*>\\s*</\\1>", RegexOption.IGNORE_CASE)
     var prev = ""
@@ -1107,6 +1196,11 @@ private fun cleanUpLineMarkup(line: String): String {
     working = removeStrayTagFragments(working)
 
     return working
+}
+
+private fun removeIncompleteTagFragments(text: String): String {
+    val brokenTagPattern = Regex("</?(?:b|strong|i|em|u|s|del|strike|p|div|center)[^>]*$", RegexOption.IGNORE_CASE)
+    return text.replace(brokenTagPattern, "")
 }
 
 private fun balanceInlineTags(text: String): String {
@@ -1278,7 +1372,7 @@ fun sanitizePastedHtml(html: String): String {
 
 @Composable
 fun FormattingToolbar(
-    onApplyFormatting: (String, String) -> Unit,
+    onApplyFormatting: (String) -> Unit,
     onSetAlignment: (ParagraphAlignment) -> Unit,
     onAddImage: () -> Unit
 ) {
@@ -1294,10 +1388,10 @@ fun FormattingToolbar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ToolbarButton(Icons.Default.FormatBold, "Tebal") { onApplyFormatting("<b>", "</b>") }
-            ToolbarButton(Icons.Default.FormatItalic, "Miring") { onApplyFormatting("<i>", "</i>") }
-            ToolbarButton(Icons.Default.FormatUnderlined, "Garis Bawah") { onApplyFormatting("<u>", "</u>") }
-            ToolbarButton(Icons.Default.FormatStrikethrough, "Coret") { onApplyFormatting("<s>", "</s>") }
+            ToolbarButton(Icons.Default.FormatBold, "Tebal") { onApplyFormatting("b") }
+            ToolbarButton(Icons.Default.FormatItalic, "Miring") { onApplyFormatting("i") }
+            ToolbarButton(Icons.Default.FormatUnderlined, "Garis Bawah") { onApplyFormatting("u") }
+            ToolbarButton(Icons.Default.FormatStrikethrough, "Coret") { onApplyFormatting("s") }
             ToolbarButton(Icons.Default.Image, "Gambar") { onAddImage() }
             ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "Kiri") { onSetAlignment(ParagraphAlignment.Left) }
             ToolbarButton(Icons.Default.FormatAlignCenter, "Tengah") { onSetAlignment(ParagraphAlignment.Center) }

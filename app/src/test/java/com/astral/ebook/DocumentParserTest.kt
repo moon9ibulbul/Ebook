@@ -131,6 +131,13 @@ class DocumentParserTest {
     }
 
     @Test
+    fun testCleanUpMarkupRemovesIncompleteTagFragments() {
+        val brokenInput = "<strong>Bab 12</strong"
+        val cleaned = com.astral.ebook.ui.cleanUpMarkup(brokenInput)
+        assertEquals("<strong>Bab 12</strong>", cleaned)
+    }
+
+    @Test
     fun testCleanUpMarkupRemovesEmptyTagsAndUnclosedTags() {
         val emptyTagText = "Kata <b></b> normal <i></i>"
         val cleanedEmpty = com.astral.ebook.ui.cleanUpMarkup(emptyTagText)
