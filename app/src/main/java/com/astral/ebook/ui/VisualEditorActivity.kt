@@ -122,6 +122,108 @@ private val IMG_TAG_REGEX = Regex(
     RegexOption.IGNORE_CASE
 )
 
+private enum class TagType {
+    BOLD_OPEN, BOLD_CLOSE,
+    ITALIC_OPEN, ITALIC_CLOSE,
+    UNDERLINE_OPEN, UNDERLINE_CLOSE,
+    STRIKE_OPEN, STRIKE_CLOSE,
+    IMG
+}
+
+private data class ValidTagInfo(
+    val range: IntRange,
+    val type: TagType,
+    val imgUri: String? = null
+)
+
+private fun findValidMatchedTags(text: String): Map<Int, ValidTagInfo> {
+    data class CandidateTag(
+        val range: IntRange,
+        val type: TagType,
+        val imgUri: String? = null
+    )
+
+    val candidates = mutableListOf<CandidateTag>()
+    var i = 0
+    val N = text.length
+
+    while (i < N) {
+        if (text[i] == '\\') {
+            val escaped = text.getOrNull(i + 1)
+            if (escaped != null && escaped in setOf('<', '\\')) {
+                i += 2
+                continue
+            }
+        }
+        if (text[i] == '<') {
+            val endAngle = text.indexOf('>', i)
+            val nextStartAngle = text.indexOf('<', i + 1)
+            val hasValidEnd = endAngle != -1 && (nextStartAngle == -1 || endAngle < nextStartAngle)
+
+            if (hasValidEnd) {
+                val tagStr = text.substring(i, endAngle + 1)
+                val tagRange = i..endAngle
+
+                if (text.regionMatches(i, "<img", 0, 4, ignoreCase = true)) {
+                    val imgMatch = IMG_TAG_REGEX.find(text, i)
+                    if (imgMatch != null && imgMatch.range.first == i) {
+                        candidates.add(CandidateTag(imgMatch.range, TagType.IMG, imgMatch.groupValues[1]))
+                        i = imgMatch.range.last + 1
+                        continue
+                    }
+                }
+
+                val type = when {
+                    tagStr.equals("<b>", ignoreCase = true) || tagStr.equals("<strong>", ignoreCase = true) -> TagType.BOLD_OPEN
+                    tagStr.equals("</b>", ignoreCase = true) || tagStr.equals("</strong>", ignoreCase = true) -> TagType.BOLD_CLOSE
+                    tagStr.equals("<i>", ignoreCase = true) || tagStr.equals("<em>", ignoreCase = true) -> TagType.ITALIC_OPEN
+                    tagStr.equals("</i>", ignoreCase = true) || tagStr.equals("</em>", ignoreCase = true) -> TagType.ITALIC_CLOSE
+                    tagStr.equals("<u>", ignoreCase = true) -> TagType.UNDERLINE_OPEN
+                    tagStr.equals("</u>", ignoreCase = true) -> TagType.UNDERLINE_CLOSE
+                    tagStr.equals("<s>", ignoreCase = true) || tagStr.equals("<del>", ignoreCase = true) || tagStr.equals("<strike>", ignoreCase = true) -> TagType.STRIKE_OPEN
+                    tagStr.equals("</s>", ignoreCase = true) || tagStr.equals("</del>", ignoreCase = true) || tagStr.equals("</strike>", ignoreCase = true) -> TagType.STRIKE_CLOSE
+                    else -> null
+                }
+
+                if (type != null) {
+                    candidates.add(CandidateTag(tagRange, type))
+                }
+                i = endAngle + 1
+                continue
+            }
+        }
+        i++
+    }
+
+    val resultMap = mutableMapOf<Int, ValidTagInfo>()
+
+    fun matchCategory(openType: TagType, closeType: TagType) {
+        val stack = java.util.ArrayDeque<CandidateTag>()
+        for (c in candidates.filter { it.type == openType || it.type == closeType }) {
+            if (c.type == openType) {
+                stack.push(c)
+            } else if (c.type == closeType) {
+                if (stack.isNotEmpty()) {
+                    val openCandidate = stack.pop()
+                    resultMap[openCandidate.range.first] = ValidTagInfo(openCandidate.range, openCandidate.type)
+                    resultMap[c.range.first] = ValidTagInfo(c.range, c.type)
+                }
+            }
+        }
+    }
+
+    matchCategory(TagType.BOLD_OPEN, TagType.BOLD_CLOSE)
+    matchCategory(TagType.ITALIC_OPEN, TagType.ITALIC_CLOSE)
+    matchCategory(TagType.UNDERLINE_OPEN, TagType.UNDERLINE_CLOSE)
+    matchCategory(TagType.STRIKE_OPEN, TagType.STRIKE_CLOSE)
+
+    candidates.filter { it.type == TagType.IMG }.forEach {
+        resultMap[it.range.first] = ValidTagInfo(it.range, it.type, it.imgUri)
+    }
+
+    return resultMap
+}
+
 class MarkupVisualTransformation(
     private val settings: EbookSettings = EbookSettings()
 ) : VisualTransformation {
@@ -239,6 +341,8 @@ class MarkupVisualTransformation(
                     origToTrans[origIdx] = pTransStart
                 }
 
+                val validTagsMap = findValidMatchedTags(working)
+
                 var boldStart: Int? = null
                 var italicStart: Int? = null
                 var underlineStart: Int? = null
@@ -271,133 +375,81 @@ class MarkupVisualTransformation(
                         }
                     }
 
-                    if (working.regionMatches(i, "<img", 0, 4, ignoreCase = true)) {
-                        val imgMatch = IMG_TAG_REGEX.find(working, i)
-                        if (imgMatch != null && imgMatch.range.first == i) {
-                            val matchLen = imgMatch.value.length
-                            for (k in 0 until matchLen) {
-                                origToTrans[origIdx + k] = builder.length
-                            }
-                            val placeholder = "🖼️ [Gambar]"
-                            val imgTransStart = builder.length
-                            builder.append(placeholder)
-                            builder.addStyle(SpanStyle(color = Color(0xFF4F46E5), fontWeight = FontWeight.Bold), imgTransStart, builder.length)
-                            for (k in 0 until placeholder.length) {
-                                transToOrig[imgTransStart + k] = origIdx
-                            }
-                            i += matchLen
-                            continue
+                    val validTag = validTagsMap[i]
+                    if (validTag != null) {
+                        val matchLen = validTag.range.last - validTag.range.first + 1
+                        for (k in 0 until matchLen) {
+                            origToTrans[origIdx + k] = builder.length
                         }
+
+                        when (validTag.type) {
+                            TagType.IMG -> {
+                                val placeholder = "🖼️ [Gambar]"
+                                val imgTransStart = builder.length
+                                builder.append(placeholder)
+                                builder.addStyle(SpanStyle(color = Color(0xFF4F46E5), fontWeight = FontWeight.Bold), imgTransStart, builder.length)
+                                for (k in 0 until placeholder.length) {
+                                    transToOrig[imgTransStart + k] = origIdx
+                                }
+                            }
+                            TagType.BOLD_OPEN -> {
+                                if (boldStart == null) boldStart = builder.length
+                            }
+                            TagType.BOLD_CLOSE -> {
+                                boldStart?.let {
+                                    builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
+                                    boldStart = null
+                                }
+                            }
+                            TagType.ITALIC_OPEN -> {
+                                if (italicStart == null) italicStart = builder.length
+                            }
+                            TagType.ITALIC_CLOSE -> {
+                                italicStart?.let {
+                                    builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
+                                    italicStart = null
+                                }
+                            }
+                            TagType.UNDERLINE_OPEN -> {
+                                if (underlineStart == null) underlineStart = builder.length
+                            }
+                            TagType.UNDERLINE_CLOSE -> {
+                                underlineStart?.let {
+                                    builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, builder.length)
+                                    underlineStart = null
+                                }
+                            }
+                            TagType.STRIKE_OPEN -> {
+                                if (strikeStart == null) strikeStart = builder.length
+                            }
+                            TagType.STRIKE_CLOSE -> {
+                                strikeStart?.let {
+                                    builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, builder.length)
+                                    strikeStart = null
+                                }
+                            }
+                        }
+                        i += matchLen
+                        continue
                     }
 
-                    when {
-                        working.regionMatches(i, "<b>", 0, 3, ignoreCase = true) -> {
-                            for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
-                            if (boldStart == null) boldStart = builder.length
-                            i += 3
-                        }
-                        working.regionMatches(i, "<strong>", 0, 8, ignoreCase = true) -> {
-                            for (k in 0 until 8) origToTrans[origIdx + k] = builder.length
-                            if (boldStart == null) boldStart = builder.length
-                            i += 8
-                        }
-                        working.regionMatches(i, "</b>", 0, 4, ignoreCase = true) -> {
-                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                            boldStart?.let {
-                                builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
-                                boldStart = null
-                            }
-                            i += 4
-                        }
-                        working.regionMatches(i, "</strong>", 0, 9, ignoreCase = true) -> {
-                            for (k in 0 until 9) origToTrans[origIdx + k] = builder.length
-                            boldStart?.let {
-                                builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
-                                boldStart = null
-                            }
-                            i += 9
-                        }
-                        working.regionMatches(i, "<i>", 0, 3, ignoreCase = true) -> {
-                            for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
-                            if (italicStart == null) italicStart = builder.length
-                            i += 3
-                        }
-                        working.regionMatches(i, "<em>", 0, 4, ignoreCase = true) -> {
-                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                            if (italicStart == null) italicStart = builder.length
-                            i += 4
-                        }
-                        working.regionMatches(i, "</i>", 0, 4, ignoreCase = true) -> {
-                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                            italicStart?.let {
-                                builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
-                                italicStart = null
-                            }
-                            i += 4
-                        }
-                        working.regionMatches(i, "</em>", 0, 5, ignoreCase = true) -> {
-                            for (k in 0 until 5) origToTrans[origIdx + k] = builder.length
-                            italicStart?.let {
-                                builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
-                                italicStart = null
-                            }
-                            i += 5
-                        }
-                        working.regionMatches(i, "<u>", 0, 3, ignoreCase = true) -> {
-                            for (k in 0 until 3) origToTrans[origIdx + k] = builder.length
-                            if (underlineStart == null) underlineStart = builder.length
-                            i += 3
-                        }
-                        working.regionMatches(i, "</u>", 0, 4, ignoreCase = true) -> {
-                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
-                            underlineStart?.let {
-                                builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, builder.length)
-                                underlineStart = null
-                            }
-                            i += 4
-                        }
-                        working.regionMatches(i, "<s>", 0, 3, ignoreCase = true) ||
-                        working.regionMatches(i, "<del>", 0, 5, ignoreCase = true) ||
-                        working.regionMatches(i, "<strike>", 0, 8, ignoreCase = true) -> {
-                            val len = when {
-                                working.regionMatches(i, "<s>", 0, 3, ignoreCase = true) -> 3
-                                working.regionMatches(i, "<del>", 0, 5, ignoreCase = true) -> 5
-                                else -> 8
-                            }
-                            for (k in 0 until len) origToTrans[origIdx + k] = builder.length
-                            if (strikeStart == null) strikeStart = builder.length
-                            i += len
-                        }
-                        working.regionMatches(i, "</s>", 0, 4, ignoreCase = true) ||
-                        working.regionMatches(i, "</del>", 0, 6, ignoreCase = true) ||
-                        working.regionMatches(i, "</strike>", 0, 9, ignoreCase = true) -> {
-                            val len = when {
-                                working.regionMatches(i, "</s>", 0, 4, ignoreCase = true) -> 4
-                                working.regionMatches(i, "</del>", 0, 6, ignoreCase = true) -> 6
-                                else -> 9
-                            }
-                            for (k in 0 until len) origToTrans[origIdx + k] = builder.length
-                            strikeStart?.let {
-                                builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, builder.length)
-                                strikeStart = null
-                            }
-                            i += len
-                        }
-                        else -> {
-                            val transIdx = builder.length
-                            builder.append(ch)
-                            transToOrig[transIdx] = origIdx
-                            origToTrans[origIdx] = transIdx
-                            i++
-                        }
+                    val endAngle = working.indexOf('>', i)
+                    val nextStartAngle = working.indexOf('<', i + 1)
+                    val hasValidEnd = endAngle != -1 && (nextStartAngle == -1 || endAngle < nextStartAngle)
+                    val invalidLen = if (hasValidEnd) {
+                        endAngle - i + 1
+                    } else {
+                        val fragmentMatch = Regex("^</?[a-zA-Z0-9_/-]+(?:\\s+[a-zA-Z0-9_/-]+=(?:\"[^\"]*\"|'[^']*'|[^\\s>]+))*", RegexOption.IGNORE_CASE).find(working.substring(i))
+                        fragmentMatch?.value?.length ?: 1
                     }
+
+                    for (k in 0 until invalidLen) {
+                        origToTrans[origIdx + k] = builder.length
+                    }
+                    i += invalidLen
                 }
 
                 val pTransEnd = builder.length
-                boldStart?.let { builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, pTransEnd) }
-                italicStart?.let { builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, pTransEnd) }
-                underlineStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, pTransEnd) }
-                strikeStart?.let { builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, pTransEnd) }
 
                 for (origIdx in (pEnd - tagEndLen) until pEnd) {
                     origToTrans[origIdx] = pTransEnd
@@ -505,7 +557,8 @@ fun VisualEditorScreen(
 ) {
     val context = LocalContext.current
     var textFieldValue by remember {
-        mutableStateOf(TextFieldValue(initialContent, TextRange(initialContent.length)))
+        val initialCleaned = com.astral.ebook.repository.stripIncompleteHtml(initialContent)
+        mutableStateOf(TextFieldValue(initialCleaned, TextRange(initialCleaned.length)))
     }
     var isCodeMode by remember { mutableStateOf(false) }
 
@@ -624,13 +677,27 @@ fun VisualEditorScreen(
                     IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
                         Icon(Icons.Default.FindReplace, contentDescription = "Cari & Ganti")
                     }
-                    IconButton(onClick = { isCodeMode = !isCodeMode }) {
+                    IconButton(onClick = {
+                        val cleaned = com.astral.ebook.repository.stripIncompleteHtml(textFieldValue.text)
+                        if (cleaned != textFieldValue.text) {
+                            val newStart = textFieldValue.selection.start.coerceAtMost(cleaned.length)
+                            val newEnd = textFieldValue.selection.end.coerceAtMost(cleaned.length)
+                            textFieldValue = textFieldValue.copy(
+                                text = cleaned,
+                                selection = TextRange(newStart, newEnd)
+                            )
+                        }
+                        isCodeMode = !isCodeMode
+                    }) {
                         Icon(
                             imageVector = if (isCodeMode) Icons.Default.Visibility else Icons.Default.Code,
                             contentDescription = if (isCodeMode) "Mode Visual" else "Mode Kode"
                         )
                     }
-                    IconButton(onClick = { onSave(textFieldValue.text) }) {
+                    IconButton(onClick = {
+                        val cleaned = com.astral.ebook.repository.stripIncompleteHtml(textFieldValue.text)
+                        onSave(cleaned)
+                    }) {
                         Icon(Icons.Default.Check, contentDescription = "Simpan", tint = MaterialTheme.colorScheme.primary)
                     }
                 },
@@ -1092,14 +1159,16 @@ fun sanitizePastedHtml(html: String): String {
     }
     sb.append(clean.substring(lastIdx))
 
-    return sb.toString()
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
+    return com.astral.ebook.repository.stripIncompleteHtml(
+        sb.toString()
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+    )
 }
 
 @Composable
