@@ -144,4 +144,73 @@ class DocumentParserTest {
         assertEquals(true, line2.isLastInParagraph)
         assertEquals(ParagraphAlignment.Justify, line2.alignment)
     }
+
+    @Test
+    fun testStripIncompleteHtmlUnclosedOpeningTag() {
+        val input = "<b>Kemana perginya kamu selama ini"
+        val stripped = com.astral.ebook.repository.stripIncompleteHtml(input)
+        assertEquals("Kemana perginya kamu selama ini", stripped)
+
+        val paragraph = DocumentParser.parseParagraphMarkup(input)
+        assertEquals("Kemana perginya kamu selama ini", paragraph.plainText())
+        assertEquals(false, paragraph.runs.first().bold)
+    }
+
+    @Test
+    fun testStripIncompleteHtmlUnopenedClosingTag() {
+        val input = "Kemana perginya </b> kamu selama ini"
+        val stripped = com.astral.ebook.repository.stripIncompleteHtml(input)
+        assertEquals("Kemana perginya  kamu selama ini", stripped)
+
+        val paragraph = DocumentParser.parseParagraphMarkup(input)
+        assertEquals("Kemana perginya  kamu selama ini", paragraph.plainText())
+        assertEquals(false, paragraph.runs.first().bold)
+    }
+
+    @Test
+    fun testStripIncompleteHtmlTagFragments() {
+        val inputs = listOf(
+            "Kemana <stron perginya kamu" to "Kemana  perginya kamu",
+            "Kemana <str perginya kamu" to "Kemana  perginya kamu",
+            "Kemana <st perginya kamu" to "Kemana  perginya kamu",
+            "Kemana </stron perginya kamu" to "Kemana  perginya kamu",
+            "Kemana <b perginya kamu" to "Kemana  perginya kamu",
+            "Kemana </b perginya kamu" to "Kemana  perginya kamu"
+        )
+
+        for ((input, expected) in inputs) {
+            val stripped = com.astral.ebook.repository.stripIncompleteHtml(input)
+            assertEquals(expected, stripped)
+        }
+    }
+
+    @Test
+    fun testStripIncompleteHtmlUnsupportedTags() {
+        val input = "Kemana <stron>perginya</stron> kamu"
+        val stripped = com.astral.ebook.repository.stripIncompleteHtml(input)
+        assertEquals("Kemana perginya kamu", stripped)
+    }
+
+    @Test
+    fun testStripIncompleteHtmlPreservesValidMatchedTagsAndEscapes() {
+        val input = "<b>Kemana</b> perginya <i>kamu</i> \\<b> selama ini"
+        val stripped = com.astral.ebook.repository.stripIncompleteHtml(input)
+        assertEquals("<b>Kemana</b> perginya <i>kamu</i> \\<b> selama ini", stripped)
+
+        val paragraph = DocumentParser.parseParagraphMarkup(input)
+        assertEquals("Kemana perginya kamu <b> selama ini", paragraph.plainText())
+        assertEquals(true, paragraph.runs[0].bold)
+        assertEquals(false, paragraph.runs[1].bold)
+        assertEquals(true, paragraph.runs[2].italic)
+    }
+
+    @Test
+    fun testMarkupVisualTransformationStripsIncompleteTags() {
+        val transformation = com.astral.ebook.ui.MarkupVisualTransformation()
+        val text = "<b>Kemana perginya kamu <stron selama ini"
+        val result = transformation.filter(androidx.compose.ui.text.AnnotatedString(text))
+
+        assertEquals("Kemana perginya kamu  selama ini", result.text.text)
+        assertEquals(0, result.text.spanStyles.size)
+    }
 }

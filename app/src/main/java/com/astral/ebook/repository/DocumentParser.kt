@@ -94,7 +94,7 @@ object DocumentParser {
 
     internal fun parseParagraphMarkup(source: String): FormattedParagraph {
         if (source.isBlank()) return FormattedParagraph(listOf(TextRun("")))
-        var working = source.trim('\n', '\r')
+        var working = stripIncompleteHtml(source).trim('\n', '\r')
         var alignment: ParagraphAlignment? = null
 
         val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
@@ -227,4 +227,147 @@ private fun String.toParagraphAlignment(): ParagraphAlignment = when (lowercase(
     "center" -> ParagraphAlignment.Center
     "justify" -> ParagraphAlignment.Justify
     else -> ParagraphAlignment.Left
+}
+
+/**
+ * Strips incomplete opening HTML tags (e.g. `<b>` without closing `</b>`),
+ * unmatched closing HTML tags (e.g. `</b>` without opening `<b>`),
+ * unclosed tag fragments (e.g. `<stron`, `<str`, `<st`, `</stron`, `<b`, `</b`),
+ * and unsupported HTML tags (e.g. `<stron>`, `</stron>`).
+ *
+ * Preserves valid matched HTML tags (`<b>...</b>`, `<i>...</i>`, `<u>...</u>`, `<s>...</s>`,
+ * `<center>...</center>`, `<p align="...">...</p>`, `<img .../>`), escaped characters (`\<b\>`),
+ * and plain text content.
+ */
+fun stripIncompleteHtml(text: String): String {
+    if (text.isEmpty()) return ""
+
+    val lines = text.split("\n")
+    return lines.joinToString("\n") { processLine(it) }
+}
+
+private fun processLine(line: String): String {
+    if (!line.contains('<') && !line.contains('\\')) return line
+
+    data class TagToken(
+        val category: TagCategory,
+        val isClose: Boolean,
+        val range: IntRange,
+        val tagText: String
+    )
+
+    val tokens = mutableListOf<TagToken>()
+    val invalidRanges = mutableListOf<IntRange>()
+
+    var idx = 0
+    val N = line.length
+
+    while (idx < N) {
+        val ch = line[idx]
+        if (ch == '\\') {
+            val escaped = line.getOrNull(idx + 1)
+            if (escaped != null && escaped in setOf('<', '\\')) {
+                idx += 2
+                continue
+            }
+        }
+        if (ch == '<') {
+            val endAngle = line.indexOf('>', idx)
+            val nextStartAngle = line.indexOf('<', idx + 1)
+
+            val hasValidEnd = endAngle != -1 && (nextStartAngle == -1 || endAngle < nextStartAngle)
+
+            if (!hasValidEnd) {
+                val fragmentMatch = UNCLOSED_TAG_FRAGMENT_REGEX.find(line.substring(idx))
+                val fragmentLen = fragmentMatch?.value?.length ?: 1
+                invalidRanges.add(idx until (idx + fragmentLen))
+                idx += fragmentLen
+                continue
+            } else {
+                val tagStr = line.substring(idx, endAngle + 1)
+                val isClose = tagStr.startsWith("</")
+
+                val category = parseTagCategory(tagStr)
+                if (category == null) {
+                    invalidRanges.add(idx..endAngle)
+                } else {
+                    tokens.add(TagToken(category, isClose, idx..endAngle, tagStr))
+                }
+                idx = endAngle + 1
+                continue
+            }
+        }
+        idx++
+    }
+
+    val validTagRanges = mutableSetOf<IntRange>()
+    val categoriesToMatch = TagCategory.values().filter { it != TagCategory.IMG }
+
+    for (cat in categoriesToMatch) {
+        val catTokens = tokens.filter { it.category == cat }
+        val stack = java.util.ArrayDeque<TagToken>()
+        for (token in catTokens) {
+            if (!token.isClose) {
+                stack.push(token)
+            } else {
+                if (stack.isNotEmpty()) {
+                    val openToken = stack.pop()
+                    validTagRanges.add(openToken.range)
+                    validTagRanges.add(token.range)
+                } else {
+                    invalidRanges.add(token.range)
+                }
+            }
+        }
+        while (stack.isNotEmpty()) {
+            val unclosedToken = stack.pop()
+            invalidRanges.add(unclosedToken.range)
+        }
+    }
+
+    tokens.filter { it.category == TagCategory.IMG }.forEach {
+        validTagRanges.add(it.range)
+    }
+
+    if (invalidRanges.isEmpty()) return line
+
+    val sb = StringBuilder()
+    val sortedInvalid = invalidRanges.sortedBy { it.first }
+
+    var curr = 0
+    while (curr < N) {
+        val matchingRange = sortedInvalid.find { curr in it }
+        if (matchingRange != null) {
+            curr = matchingRange.last + 1
+        } else {
+            sb.append(line[curr])
+            curr++
+        }
+    }
+
+    return sb.toString()
+}
+
+private val UNCLOSED_TAG_FRAGMENT_REGEX = Regex(
+    "^</?[a-zA-Z0-9_/-]+(?:\\s+[a-zA-Z0-9_/-]+=(?:\"[^\"]*\"|'[^']*'|[^\\s>]+))*",
+    RegexOption.IGNORE_CASE
+)
+
+private enum class TagCategory {
+    BOLD, ITALIC, UNDERLINE, STRIKE, CENTER, PARA, IMG
+}
+
+private fun parseTagCategory(tagStr: String): TagCategory? {
+    val lower = tagStr.lowercase()
+    return when {
+        lower.matches(Regex("^</?(?:b|strong)\\s*>$")) -> TagCategory.BOLD
+        lower.matches(Regex("^</?(?:i|em)\\s*>$")) -> TagCategory.ITALIC
+        lower.matches(Regex("^</?u\\s*>$")) -> TagCategory.UNDERLINE
+        lower.matches(Regex("^</?(?:s|del|strike)\\s*>$")) -> TagCategory.STRIKE
+        lower.matches(Regex("^</?center\\s*>$")) -> TagCategory.CENTER
+        lower.matches(Regex("^<(?:p|div)\\s+(?:align=\"[a-zA-Z]+\"|style=\"[^\"]*text-align:\\s*[a-zA-Z]+[^\"]*\")\\s*>$")) ||
+        lower.matches(Regex("^</(?:p|div)\\s*>$")) -> TagCategory.PARA
+        lower.matches(Regex("^<img\\s+[^>]*src=[\"'][^\"']+[\"'][^>]*\\/?>$")) -> TagCategory.IMG
+        else -> null
+    }
 }
