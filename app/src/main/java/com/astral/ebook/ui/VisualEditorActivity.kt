@@ -557,7 +557,8 @@ fun VisualEditorScreen(
 ) {
     val context = LocalContext.current
     var textFieldValue by remember {
-        mutableStateOf(TextFieldValue(initialContent, TextRange(initialContent.length)))
+        val initialCleaned = com.astral.ebook.repository.stripIncompleteHtml(initialContent)
+        mutableStateOf(TextFieldValue(initialCleaned, TextRange(initialCleaned.length)))
     }
     var isCodeMode by remember { mutableStateOf(false) }
 
@@ -676,13 +677,27 @@ fun VisualEditorScreen(
                     IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
                         Icon(Icons.Default.FindReplace, contentDescription = "Cari & Ganti")
                     }
-                    IconButton(onClick = { isCodeMode = !isCodeMode }) {
+                    IconButton(onClick = {
+                        val cleaned = com.astral.ebook.repository.stripIncompleteHtml(textFieldValue.text)
+                        if (cleaned != textFieldValue.text) {
+                            val newStart = textFieldValue.selection.start.coerceAtMost(cleaned.length)
+                            val newEnd = textFieldValue.selection.end.coerceAtMost(cleaned.length)
+                            textFieldValue = textFieldValue.copy(
+                                text = cleaned,
+                                selection = TextRange(newStart, newEnd)
+                            )
+                        }
+                        isCodeMode = !isCodeMode
+                    }) {
                         Icon(
                             imageVector = if (isCodeMode) Icons.Default.Visibility else Icons.Default.Code,
                             contentDescription = if (isCodeMode) "Mode Visual" else "Mode Kode"
                         )
                     }
-                    IconButton(onClick = { onSave(textFieldValue.text) }) {
+                    IconButton(onClick = {
+                        val cleaned = com.astral.ebook.repository.stripIncompleteHtml(textFieldValue.text)
+                        onSave(cleaned)
+                    }) {
                         Icon(Icons.Default.Check, contentDescription = "Simpan", tint = MaterialTheme.colorScheme.primary)
                     }
                 },
