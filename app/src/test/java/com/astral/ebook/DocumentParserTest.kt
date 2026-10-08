@@ -135,6 +135,27 @@ class DocumentParserTest {
         val brokenInput = "<strong>Bab 12</strong"
         val cleaned = com.astral.ebook.ui.cleanUpMarkup(brokenInput)
         assertEquals("<strong>Bab 12</strong>", cleaned)
+
+        val corruptedTrash = "Bab 12</strongAndTrash"
+        val cleanedTrash = com.astral.ebook.ui.cleanUpMarkup(corruptedTrash)
+        assertEquals("Bab 12", cleanedTrash)
+    }
+
+    @Test
+    fun testMarkupVisualTransformationOffsetMappingForStyledText() {
+        val transformation = com.astral.ebook.ui.MarkupVisualTransformation()
+        val textWithMarkup = "<strong>Bab 12</strong>"
+        val result = transformation.filter(androidx.compose.ui.text.AnnotatedString(textWithMarkup))
+
+        assertEquals("Bab 12", result.text.text)
+        val offsetMapping = result.offsetMapping
+
+        // Visual offset 0 ('B') maps to original offset 8 ('B' in <strong>Bab 12</strong>)
+        assertEquals(8, offsetMapping.transformedToOriginal(0))
+        // Visual offset 6 (after '2') maps to original offset 23 (after </strong>)
+        assertEquals(23, offsetMapping.transformedToOriginal(6))
+        // Original offset 14 (after '2') maps to visual offset 6
+        assertEquals(6, offsetMapping.originalToTransformed(14))
     }
 
     @Test

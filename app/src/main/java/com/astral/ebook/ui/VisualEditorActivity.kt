@@ -304,14 +304,13 @@ class MarkupVisualTransformation(
                         working.regionMatches(i, "</b>", 0, 4, ignoreCase = true) ||
                         working.regionMatches(i, "</strong>", 0, 9, ignoreCase = true) -> {
                             val len = if (working.regionMatches(i, "</b>", 0, 4, ignoreCase = true)) 4 else 9
-                            for (k in 0 until len) origToTrans[origIdx + k] = builder.length
+                            val currentTransLen = builder.length
+                            for (k in 0 until len) origToTrans[origIdx + k] = currentTransLen
                             boldStart?.let {
-                                builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, builder.length)
+                                builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold), it, currentTransLen)
                                 boldStart = null
                             }
-                            if (transToOrig[builder.length] == 0) {
-                                transToOrig[builder.length] = origIdx
-                            }
+                            transToOrig[currentTransLen] = origIdx + len
                             i += len
                         }
                         working.regionMatches(i, "<i>", 0, 3, ignoreCase = true) -> {
@@ -327,14 +326,13 @@ class MarkupVisualTransformation(
                         working.regionMatches(i, "</i>", 0, 4, ignoreCase = true) ||
                         working.regionMatches(i, "</em>", 0, 5, ignoreCase = true) -> {
                             val len = if (working.regionMatches(i, "</i>", 0, 4, ignoreCase = true)) 4 else 5
-                            for (k in 0 until len) origToTrans[origIdx + k] = builder.length
+                            val currentTransLen = builder.length
+                            for (k in 0 until len) origToTrans[origIdx + k] = currentTransLen
                             italicStart?.let {
-                                builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, builder.length)
+                                builder.addStyle(SpanStyle(fontStyle = FontStyle.Italic), it, currentTransLen)
                                 italicStart = null
                             }
-                            if (transToOrig[builder.length] == 0) {
-                                transToOrig[builder.length] = origIdx
-                            }
+                            transToOrig[currentTransLen] = origIdx + len
                             i += len
                         }
                         working.regionMatches(i, "<u>", 0, 3, ignoreCase = true) -> {
@@ -343,14 +341,13 @@ class MarkupVisualTransformation(
                             i += 3
                         }
                         working.regionMatches(i, "</u>", 0, 4, ignoreCase = true) -> {
-                            for (k in 0 until 4) origToTrans[origIdx + k] = builder.length
+                            val currentTransLen = builder.length
+                            for (k in 0 until 4) origToTrans[origIdx + k] = currentTransLen
                             underlineStart?.let {
-                                builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, builder.length)
+                                builder.addStyle(SpanStyle(textDecoration = TextDecoration.Underline), it, currentTransLen)
                                 underlineStart = null
                             }
-                            if (transToOrig[builder.length] == 0) {
-                                transToOrig[builder.length] = origIdx
-                            }
+                            transToOrig[currentTransLen] = origIdx + 4
                             i += 4
                         }
                         working.regionMatches(i, "<s>", 0, 3, ignoreCase = true) ||
@@ -373,14 +370,13 @@ class MarkupVisualTransformation(
                                 working.regionMatches(i, "</del>", 0, 6, ignoreCase = true) -> 6
                                 else -> 9
                             }
-                            for (k in 0 until len) origToTrans[origIdx + k] = builder.length
+                            val currentTransLen = builder.length
+                            for (k in 0 until len) origToTrans[origIdx + k] = currentTransLen
                             strikeStart?.let {
-                                builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, builder.length)
+                                builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), it, currentTransLen)
                                 strikeStart = null
                             }
-                            if (transToOrig[builder.length] == 0) {
-                                transToOrig[builder.length] = origIdx
-                            }
+                            transToOrig[currentTransLen] = origIdx + len
                             i += len
                         }
                         else -> {
@@ -1131,7 +1127,7 @@ fun cleanUpMarkup(input: String): String {
 private fun cleanUpLineMarkup(line: String): String {
     if (line.isEmpty()) return ""
 
-    var working = removeIncompleteTagFragments(line)
+    var working = stripRawTagArtifacts(line)
 
     val emptyInlineRegex = Regex("<(b|strong|i|em|u|s|del|strike)\\b[^>]*>\\s*</\\1>", RegexOption.IGNORE_CASE)
     var prev = ""
@@ -1193,14 +1189,16 @@ private fun cleanUpLineMarkup(line: String): String {
         working = balanceInlineTags(working)
     }
 
-    working = removeStrayTagFragments(working)
-
     return working
 }
 
-private fun removeIncompleteTagFragments(text: String): String {
-    val brokenTagPattern = Regex("</?(?:b|strong|i|em|u|s|del|strike|p|div|center)[^>]*$", RegexOption.IGNORE_CASE)
-    return text.replace(brokenTagPattern, "")
+private fun stripRawTagArtifacts(text: String): String {
+    if (text.isEmpty()) return ""
+    val corruptedFragmentPattern = Regex("</[a-zA-Z0-9]{2,}(?![^<]*>)", RegexOption.IGNORE_CASE)
+    var cleaned = text.replace(corruptedFragmentPattern, "")
+    val tagWithExtraBrackets = Regex("(</?(?:b|i|u|s|strong|em|del|strike|p|center)\\b[^>]*>)>+", RegexOption.IGNORE_CASE)
+    cleaned = cleaned.replace(tagWithExtraBrackets, "$1")
+    return cleaned
 }
 
 private fun balanceInlineTags(text: String): String {
