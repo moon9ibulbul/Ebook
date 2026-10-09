@@ -78,16 +78,31 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -750,7 +765,7 @@ fun VisualEditorScreen(
     val context = LocalContext.current
     var textFieldValue by remember {
         val initialCleaned = com.astral.ebook.repository.stripIncompleteHtml(initialContent)
-        mutableStateOf(TextFieldValue(initialCleaned, TextRange(initialCleaned.length)))
+        mutableStateOf(TextFieldValue(initialCleaned, TextRange(0)))
     }
     var isCodeMode by remember { mutableStateOf(false) }
 
@@ -791,6 +806,8 @@ fun VisualEditorScreen(
     var searchQuery by remember { mutableStateOf("") }
     var replaceQuery by remember { mutableStateOf("") }
     var currentMatchIndex by remember { mutableIntStateOf(0) }
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var textFieldTopInScrollable by remember { mutableFloatStateOf(0f) }
 
     val matches = remember(textFieldValue.text, searchQuery) {
         if (searchQuery.isEmpty()) {
@@ -807,6 +824,8 @@ fun VisualEditorScreen(
         }
     }
 
+    val visualTransform = remember(settings) { MarkupVisualTransformation(settings) }
+
     fun highlightMatch(index: Int) {
         if (matches.isNotEmpty() && index in matches.indices) {
             val range = matches[index]
@@ -816,13 +835,32 @@ fun VisualEditorScreen(
         }
     }
 
-    LaunchedEffect(matches, currentMatchIndex) {
-        if (matches.isNotEmpty()) {
+    fun scrollToMatch(index: Int) {
+        val layoutResult = textLayoutResult ?: return
+        if (matches.isEmpty() || index !in matches.indices) return
+        val range = matches[index]
+        val transformedOffset = if (!isCodeMode) {
+            visualTransform.filter(AnnotatedString(textFieldValue.text)).offsetMapping.originalToTransformed(range.first)
+        } else {
+            range.first
+        }
+        val safeOffset = transformedOffset.coerceIn(0, layoutResult.layoutInput.text.length)
+        val line = layoutResult.getLineForOffset(safeOffset)
+        val lineTop = layoutResult.getLineTop(line)
+        val targetScroll = (textFieldTopInScrollable + lineTop - 100f).coerceAtLeast(0f).toInt()
+        coroutineScope.launch {
+            scrollState.animateScrollTo(targetScroll)
+        }
+    }
+
+    LaunchedEffect(matches, currentMatchIndex, textLayoutResult, isCodeMode, isSearchVisible) {
+        if (matches.isNotEmpty() && isSearchVisible) {
             val safeIdx = currentMatchIndex.coerceIn(0, matches.lastIndex)
             if (safeIdx != currentMatchIndex) {
                 currentMatchIndex = safeIdx
             }
             highlightMatch(safeIdx)
+            scrollToMatch(safeIdx)
         }
     }
 
@@ -960,12 +998,24 @@ fun VisualEditorScreen(
                     currentMatchIndex = currentMatchIndex,
                     onNextMatch = {
                         if (matches.isNotEmpty()) {
-                            currentMatchIndex = (currentMatchIndex + 1) % matches.size
+                            val nextIdx = (currentMatchIndex + 1) % matches.size
+                            if (nextIdx == currentMatchIndex) {
+                                highlightMatch(nextIdx)
+                                scrollToMatch(nextIdx)
+                            } else {
+                                currentMatchIndex = nextIdx
+                            }
                         }
                     },
                     onPrevMatch = {
                         if (matches.isNotEmpty()) {
-                            currentMatchIndex = if (currentMatchIndex - 1 < 0) matches.lastIndex else currentMatchIndex - 1
+                            val prevIdx = if (currentMatchIndex - 1 < 0) matches.lastIndex else currentMatchIndex - 1
+                            if (prevIdx == currentMatchIndex) {
+                                highlightMatch(prevIdx)
+                                scrollToMatch(prevIdx)
+                            } else {
+                                currentMatchIndex = prevIdx
+                            }
                         }
                     },
                     onReplace = {
@@ -1086,8 +1136,6 @@ fun VisualEditorScreen(
                 }
             )
 
-            val visualTransform = remember(settings) { MarkupVisualTransformation(settings) }
-
             val defaultAlignment = when (settings.paragraphOptions.alignment) {
                 ParagraphAlignment.Left, ParagraphAlignment.Justify -> TextAlign.Left
                 ParagraphAlignment.Center -> TextAlign.Center
@@ -1116,6 +1164,7 @@ fun VisualEditorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .verticalScrollbar(scrollState)
                     .verticalScroll(scrollState)
             ) {
                 if (!isCodeMode && imageUris.isNotEmpty()) {
@@ -1144,7 +1193,11 @@ fun VisualEditorScreen(
                     }
                 }
 
-                TextField(
+                val interactionSource = remember { MutableInteractionSource() }
+                val activeVisualTransform = if (isCodeMode) VisualTransformation.None else visualTransform
+                val activeTextStyle = if (isCodeMode) LocalTextStyle.current.copy(fontSize = 14.sp) else editorTextStyle
+
+                BasicTextField(
                     value = textFieldValue,
                     onValueChange = { incoming ->
                         val insertedLength = incoming.text.length - textFieldValue.text.length
@@ -1156,25 +1209,78 @@ fun VisualEditorScreen(
                                 val pasteEndInOrig = (pasteStart + selectionLen).coerceIn(0, textFieldValue.text.length)
                                 val newText = textFieldValue.text.substring(0, pasteStart) + clipboardHtml + textFieldValue.text.substring(pasteEndInOrig)
                                 updateTextFieldValue(TextFieldValue(newText, TextRange(pasteStart + clipboardHtml.length)))
-                                return@TextField
+                                return@BasicTextField
                             }
                         }
                         updateTextFieldValue(incoming)
                     },
+                    onTextLayout = { textLayoutResult = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
-                    textStyle = if (isCodeMode) LocalTextStyle.current.copy(fontSize = 14.sp) else editorTextStyle,
-                    visualTransformation = if (isCodeMode) VisualTransformation.None else visualTransform,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    ),
-                    placeholder = { Text("Mulai menulis naskah Anda di sini...", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        .padding(horizontal = 8.dp)
+                        .onGloballyPositioned { coordinates ->
+                            textFieldTopInScrollable = coordinates.positionInParent().y
+                        },
+                    textStyle = activeTextStyle,
+                    visualTransformation = activeVisualTransform,
+                    interactionSource = interactionSource,
+                    decorationBox = { innerTextField ->
+                        TextFieldDefaults.DecorationBox(
+                            value = textFieldValue.text,
+                            innerTextField = innerTextField,
+                            enabled = true,
+                            singleLine = false,
+                            visualTransformation = activeVisualTransform,
+                            interactionSource = interactionSource,
+                            placeholder = { Text("Mulai menulis naskah Anda di sini...", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            contentPadding = PaddingValues(0.dp)
+                        )
+                    }
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun Modifier.verticalScrollbar(
+    scrollState: ScrollState,
+    width: Dp = 4.dp,
+    color: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+): Modifier {
+    val alpha = remember { Animatable(0f) }
+
+    LaunchedEffect(scrollState.value) {
+        if (scrollState.maxValue > 0) {
+            alpha.snapTo(1f)
+            kotlinx.coroutines.delay(1000)
+            alpha.animateTo(0f, animationSpec = tween(durationMillis = 500))
+        }
+    }
+
+    return drawWithContent {
+        drawContent()
+
+        val needScrollbar = scrollState.maxValue > 0 && alpha.value > 0f
+        if (needScrollbar) {
+            val visibleHeight = size.height
+            val totalHeight = visibleHeight + scrollState.maxValue
+            val scrollbarHeight = (visibleHeight * (visibleHeight / totalHeight)).coerceAtLeast(24.dp.toPx())
+            val scrollbarY = (scrollState.value.toFloat() / scrollState.maxValue) * (visibleHeight - scrollbarHeight)
+            val scrollbarWidthPx = width.toPx()
+
+            drawRoundRect(
+                color = color.copy(alpha = color.alpha * alpha.value),
+                topLeft = Offset(size.width - scrollbarWidthPx - 2.dp.toPx(), scrollbarY),
+                size = Size(scrollbarWidthPx, scrollbarHeight),
+                cornerRadius = CornerRadius(scrollbarWidthPx / 2, scrollbarWidthPx / 2)
+            )
         }
     }
 }
