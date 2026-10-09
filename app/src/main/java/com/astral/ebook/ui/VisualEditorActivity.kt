@@ -34,6 +34,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
@@ -72,6 +74,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -122,7 +125,7 @@ private val IMG_TAG_REGEX = Regex(
     RegexOption.IGNORE_CASE
 )
 
-private enum class TagType {
+internal enum class TagType {
     BOLD_OPEN, BOLD_CLOSE,
     ITALIC_OPEN, ITALIC_CLOSE,
     UNDERLINE_OPEN, UNDERLINE_CLOSE,
@@ -222,6 +225,195 @@ private fun findValidMatchedTags(text: String): Map<Int, ValidTagInfo> {
     }
 
     return resultMap
+}
+
+private data class FormatSpan(
+    val openTagRange: IntRange,
+    val closeTagRange: IntRange,
+    val openType: TagType,
+    val closeType: TagType
+)
+
+private fun findMatchedFormatSpans(text: String, openType: TagType, closeType: TagType): List<FormatSpan> {
+    data class Candidate(val range: IntRange, val type: TagType)
+    val candidates = mutableListOf<Candidate>()
+
+    var i = 0
+    val N = text.length
+    while (i < N) {
+        if (text[i] == '\\') {
+            val escaped = text.getOrNull(i + 1)
+            if (escaped != null && escaped in setOf('<', '\\')) {
+                i += 2
+                continue
+            }
+        }
+        if (text[i] == '<') {
+            val endAngle = text.indexOf('>', i)
+            val nextStartAngle = text.indexOf('<', i + 1)
+            val hasValidEnd = endAngle != -1 && (nextStartAngle == -1 || endAngle < nextStartAngle)
+            if (hasValidEnd) {
+                val tagStr = text.substring(i, endAngle + 1)
+                val type = when {
+                    (openType == TagType.BOLD_OPEN) && (tagStr.equals("<b>", ignoreCase = true) || tagStr.equals("<strong>", ignoreCase = true)) -> TagType.BOLD_OPEN
+                    (closeType == TagType.BOLD_CLOSE) && (tagStr.equals("</b>", ignoreCase = true) || tagStr.equals("</strong>", ignoreCase = true)) -> TagType.BOLD_CLOSE
+                    (openType == TagType.ITALIC_OPEN) && (tagStr.equals("<i>", ignoreCase = true) || tagStr.equals("<em>", ignoreCase = true)) -> TagType.ITALIC_OPEN
+                    (closeType == TagType.ITALIC_CLOSE) && (tagStr.equals("</i>", ignoreCase = true) || tagStr.equals("</em>", ignoreCase = true)) -> TagType.ITALIC_CLOSE
+                    (openType == TagType.UNDERLINE_OPEN) && tagStr.equals("<u>", ignoreCase = true) -> TagType.UNDERLINE_OPEN
+                    (closeType == TagType.UNDERLINE_CLOSE) && tagStr.equals("</u>", ignoreCase = true) -> TagType.UNDERLINE_CLOSE
+                    (openType == TagType.STRIKE_OPEN) && (tagStr.equals("<s>", ignoreCase = true) || tagStr.equals("<del>", ignoreCase = true) || tagStr.equals("<strike>", ignoreCase = true)) -> TagType.STRIKE_OPEN
+                    (closeType == TagType.STRIKE_CLOSE) && (tagStr.equals("</s>", ignoreCase = true) || tagStr.equals("</del>", ignoreCase = true) || tagStr.equals("</strike>", ignoreCase = true)) -> TagType.STRIKE_CLOSE
+                    else -> null
+                }
+                if (type != null) {
+                    candidates.add(Candidate(i..endAngle, type))
+                }
+                i = endAngle + 1
+                continue
+            }
+        }
+        i++
+    }
+
+    val spans = mutableListOf<FormatSpan>()
+    val stack = java.util.ArrayDeque<Candidate>()
+    for (c in candidates) {
+        if (c.type == openType) {
+            stack.push(c)
+        } else if (c.type == closeType && stack.isNotEmpty()) {
+            val openCandidate = stack.pop()
+            spans.add(FormatSpan(openCandidate.range, c.range, openType, closeType))
+        }
+    }
+    return spans
+}
+
+internal fun isInlineFormatActive(text: String, selection: TextRange, openType: TagType, closeType: TagType): Boolean {
+    val spans = findMatchedFormatSpans(text, openType, closeType)
+    if (spans.isEmpty()) return false
+
+    val min = selection.min
+    val max = selection.max
+
+    if (min == max) {
+        // Cursor check: cursor is inside styled content (between open tag end and close tag start)
+        return spans.any { span -> min > span.openTagRange.last && min < span.closeTagRange.first }
+    } else {
+        // Selection check: every position in selection is covered by a span
+        for (pos in min until max) {
+            val covered = spans.any { span -> pos > span.openTagRange.last && pos < span.closeTagRange.first }
+            if (!covered) return false
+        }
+        return true
+    }
+}
+
+internal fun toggleInlineFormat(
+    textFieldValue: TextFieldValue,
+    openTagStr: String,
+    closeTagStr: String,
+    openType: TagType,
+    closeType: TagType
+): TextFieldValue {
+    val text = textFieldValue.text
+    val start = textFieldValue.selection.min
+    val end = textFieldValue.selection.max
+    val isActive = isInlineFormatActive(text, textFieldValue.selection, openType, closeType)
+
+    if (isActive) {
+        // Active: remove enclosing tags that intersect with or surround the selection
+        val spans = findMatchedFormatSpans(text, openType, closeType)
+        val targetSpans = if (start == end) {
+            spans.filter { span -> start > span.openTagRange.last && start < span.closeTagRange.first }
+        } else {
+            spans.filter { span ->
+                val spanContentStart = span.openTagRange.last + 1
+                val spanContentEnd = span.closeTagRange.first
+                !(end <= spanContentStart || start >= spanContentEnd)
+            }
+        }
+
+        if (targetSpans.isEmpty()) return textFieldValue
+
+        val rangesToRemove = mutableListOf<IntRange>()
+        targetSpans.forEach {
+            rangesToRemove.add(it.openTagRange)
+            rangesToRemove.add(it.closeTagRange)
+        }
+        val sortedRanges = rangesToRemove.sortedBy { it.first }
+
+        val sb = StringBuilder()
+        var lastIdx = 0
+        var newStart = start
+        var newEnd = end
+
+        for (r in sortedRanges) {
+            if (r.first > lastIdx) {
+                sb.append(text.substring(lastIdx, r.first))
+            }
+            val len = r.last - r.first + 1
+            if (r.first < start) {
+                newStart -= len
+            }
+            if (r.first < end) {
+                newEnd -= len
+            }
+            lastIdx = r.last + 1
+        }
+        if (lastIdx < text.length) {
+            sb.append(text.substring(lastIdx))
+        }
+
+        val newText = sb.toString()
+        val finalStart = newStart.coerceIn(0, newText.length)
+        val finalEnd = newEnd.coerceIn(0, newText.length)
+        return TextFieldValue(newText, TextRange(finalStart, finalEnd))
+    } else {
+        // Inactive: wrap selection (or current word if selection is empty)
+        val selectedText = text.substring(start, end)
+        val newText = text.substring(0, start) + openTagStr + selectedText + closeTagStr + text.substring(end)
+        val newSelection = TextRange(start + openTagStr.length, start + openTagStr.length + selectedText.length)
+        return TextFieldValue(newText, newSelection)
+    }
+}
+
+fun getCurrentParagraphAlignment(
+    text: String,
+    selection: TextRange,
+    defaultAlign: ParagraphAlignment = ParagraphAlignment.Left
+): ParagraphAlignment {
+    val start = selection.min
+    var paraStart = start
+    while (paraStart > 0 && text[paraStart - 1] != '\n') {
+        paraStart--
+    }
+    var paraEnd = selection.max
+    while (paraEnd < text.length && text[paraEnd] != '\n') {
+        paraEnd++
+    }
+
+    val paraText = text.substring(paraStart, paraEnd).trim()
+    val htmlPAlign = Regex("^<(?:p|div)\\s+(?:align=\"([a-zA-Z]+)\"|style=\"[^\"]*text-align:\\s*([a-zA-Z]+)[^\"]*\")\\s*>(.*)</(?:p|div)>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    val centerTag = Regex("^<center>(.*)</center>$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+
+    val htmlPMatch = htmlPAlign.find(paraText)
+    if (htmlPMatch != null) {
+        val alignStr = htmlPMatch.groupValues[1].ifEmpty { htmlPMatch.groupValues[2] }.lowercase()
+        return when (alignStr) {
+            "center" -> ParagraphAlignment.Center
+            "right" -> ParagraphAlignment.Right
+            "justify" -> ParagraphAlignment.Justify
+            "left" -> ParagraphAlignment.Left
+            else -> defaultAlign
+        }
+    }
+
+    val centerMatch = centerTag.find(paraText)
+    if (centerMatch != null) {
+        return ParagraphAlignment.Center
+    }
+
+    return defaultAlign
 }
 
 class MarkupVisualTransformation(
@@ -562,6 +754,36 @@ fun VisualEditorScreen(
     }
     var isCodeMode by remember { mutableStateOf(false) }
 
+    val undoStack = remember { mutableStateListOf<TextFieldValue>() }
+    val redoStack = remember { mutableStateListOf<TextFieldValue>() }
+
+    fun updateTextFieldValue(newValue: TextFieldValue) {
+        if (newValue.text != textFieldValue.text) {
+            undoStack.add(textFieldValue)
+            if (undoStack.size > 50) {
+                undoStack.removeAt(0)
+            }
+            redoStack.clear()
+        }
+        textFieldValue = newValue
+    }
+
+    fun performUndo() {
+        if (undoStack.isNotEmpty()) {
+            val previousState = undoStack.removeAt(undoStack.lastIndex)
+            redoStack.add(textFieldValue)
+            textFieldValue = previousState
+        }
+    }
+
+    fun performRedo() {
+        if (redoStack.isNotEmpty()) {
+            val nextState = redoStack.removeAt(redoStack.lastIndex)
+            undoStack.add(textFieldValue)
+            textFieldValue = nextState
+        }
+    }
+
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -634,7 +856,7 @@ fun VisualEditorScreen(
             val imgTag = "<img src=\"$it\"/>"
             val newText = text.substring(0, start) + imgTag + text.substring(end)
             val newSelection = TextRange(start + imgTag.length)
-            textFieldValue = TextFieldValue(newText, newSelection)
+            updateTextFieldValue(TextFieldValue(newText, newSelection))
         }
     }
 
@@ -668,6 +890,18 @@ fun VisualEditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { performUndo() },
+                        enabled = undoStack.isNotEmpty()
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Batalkan (Undo)")
+                    }
+                    IconButton(
+                        onClick = { performRedo() },
+                        enabled = redoStack.isNotEmpty()
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Ulangi (Redo)")
+                    }
                     IconButton(onClick = { scrollToTop() }) {
                         Icon(Icons.Default.VerticalAlignTop, contentDescription = "Ke Atas")
                     }
@@ -740,13 +974,13 @@ fun VisualEditorScreen(
                             val origText = textFieldValue.text
                             val newText = origText.substring(0, range.first) + replaceQuery + origText.substring(range.last + 1)
                             val newSelectionStart = (range.first + replaceQuery.length).coerceAtMost(newText.length)
-                            textFieldValue = TextFieldValue(newText, TextRange(newSelectionStart))
+                            updateTextFieldValue(TextFieldValue(newText, TextRange(newSelectionStart)))
                         }
                     },
                     onReplaceAll = {
                         if (searchQuery.isNotEmpty() && matches.isNotEmpty()) {
                             val newText = textFieldValue.text.replace(searchQuery, replaceQuery, ignoreCase = true)
-                            textFieldValue = TextFieldValue(newText, TextRange(newText.length.coerceAtMost(textFieldValue.selection.start)))
+                            updateTextFieldValue(TextFieldValue(newText, TextRange(newText.length.coerceAtMost(textFieldValue.selection.start))))
                             currentMatchIndex = 0
                         }
                     },
@@ -754,16 +988,47 @@ fun VisualEditorScreen(
                 )
             }
 
-            FormattingToolbar(
-                onApplyFormatting = { prefix, suffix ->
-                    val start = textFieldValue.selection.min
-                    val end = textFieldValue.selection.max
-                    val text = textFieldValue.text
-                    val selectedText = text.substring(start, end)
+            val isBoldActive = remember(textFieldValue) {
+                isInlineFormatActive(textFieldValue.text, textFieldValue.selection, TagType.BOLD_OPEN, TagType.BOLD_CLOSE)
+            }
+            val isItalicActive = remember(textFieldValue) {
+                isInlineFormatActive(textFieldValue.text, textFieldValue.selection, TagType.ITALIC_OPEN, TagType.ITALIC_CLOSE)
+            }
+            val isUnderlineActive = remember(textFieldValue) {
+                isInlineFormatActive(textFieldValue.text, textFieldValue.selection, TagType.UNDERLINE_OPEN, TagType.UNDERLINE_CLOSE)
+            }
+            val isStrikeActive = remember(textFieldValue) {
+                isInlineFormatActive(textFieldValue.text, textFieldValue.selection, TagType.STRIKE_OPEN, TagType.STRIKE_CLOSE)
+            }
+            val currentAlignment = remember(textFieldValue, settings) {
+                getCurrentParagraphAlignment(textFieldValue.text, textFieldValue.selection, settings.paragraphOptions.alignment)
+            }
 
-                    val newText = text.substring(0, start) + prefix + selectedText + suffix + text.substring(end)
-                    val newSelection = TextRange(start + prefix.length, start + prefix.length + selectedText.length)
-                    textFieldValue = TextFieldValue(newText, newSelection)
+            FormattingToolbar(
+                isBoldActive = isBoldActive,
+                isItalicActive = isItalicActive,
+                isUnderlineActive = isUnderlineActive,
+                isStrikeActive = isStrikeActive,
+                currentAlignment = currentAlignment,
+                onToggleBold = {
+                    updateTextFieldValue(
+                        toggleInlineFormat(textFieldValue, "<b>", "</b>", TagType.BOLD_OPEN, TagType.BOLD_CLOSE)
+                    )
+                },
+                onToggleItalic = {
+                    updateTextFieldValue(
+                        toggleInlineFormat(textFieldValue, "<i>", "</i>", TagType.ITALIC_OPEN, TagType.ITALIC_CLOSE)
+                    )
+                },
+                onToggleUnderline = {
+                    updateTextFieldValue(
+                        toggleInlineFormat(textFieldValue, "<u>", "</u>", TagType.UNDERLINE_OPEN, TagType.UNDERLINE_CLOSE)
+                    )
+                },
+                onToggleStrike = {
+                    updateTextFieldValue(
+                        toggleInlineFormat(textFieldValue, "<s>", "</s>", TagType.STRIKE_OPEN, TagType.STRIKE_CLOSE)
+                    )
                 },
                 onSetAlignment = { align ->
                     val start = textFieldValue.selection.min
@@ -805,7 +1070,8 @@ fun VisualEditorScreen(
                         matched = false
                     }
 
-                    val newParaText = if (existingAlign == tag) {
+                    val defaultAlignName = settings.paragraphOptions.alignment.name.lowercase()
+                    val newParaText = if (existingAlign == tag || (existingAlign == null && tag == defaultAlignName)) {
                         workingPara
                     } else {
                         "<p align=\"$tag\">$workingPara</p>"
@@ -813,7 +1079,7 @@ fun VisualEditorScreen(
 
                     val newText = text.substring(0, paraStart) + newParaText + text.substring(paraEnd)
                     val newSelection = TextRange(paraStart, paraStart + newParaText.length)
-                    textFieldValue = TextFieldValue(newText, newSelection)
+                    updateTextFieldValue(TextFieldValue(newText, newSelection))
                 },
                 onAddImage = {
                     imagePickerLauncher.launch(arrayOf("image/*"))
@@ -889,11 +1155,11 @@ fun VisualEditorScreen(
                                 val pasteStart = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
                                 val pasteEndInOrig = (pasteStart + selectionLen).coerceIn(0, textFieldValue.text.length)
                                 val newText = textFieldValue.text.substring(0, pasteStart) + clipboardHtml + textFieldValue.text.substring(pasteEndInOrig)
-                                textFieldValue = TextFieldValue(newText, TextRange(pasteStart + clipboardHtml.length))
+                                updateTextFieldValue(TextFieldValue(newText, TextRange(pasteStart + clipboardHtml.length)))
                                 return@TextField
                             }
                         }
-                        textFieldValue = incoming
+                        updateTextFieldValue(incoming)
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1173,7 +1439,15 @@ fun sanitizePastedHtml(html: String): String {
 
 @Composable
 fun FormattingToolbar(
-    onApplyFormatting: (String, String) -> Unit,
+    isBoldActive: Boolean = false,
+    isItalicActive: Boolean = false,
+    isUnderlineActive: Boolean = false,
+    isStrikeActive: Boolean = false,
+    currentAlignment: ParagraphAlignment = ParagraphAlignment.Left,
+    onToggleBold: () -> Unit,
+    onToggleItalic: () -> Unit,
+    onToggleUnderline: () -> Unit,
+    onToggleStrike: () -> Unit,
     onSetAlignment: (ParagraphAlignment) -> Unit,
     onAddImage: () -> Unit
 ) {
@@ -1189,25 +1463,48 @@ fun FormattingToolbar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ToolbarButton(Icons.Default.FormatBold, "Tebal") { onApplyFormatting("<b>", "</b>") }
-            ToolbarButton(Icons.Default.FormatItalic, "Miring") { onApplyFormatting("<i>", "</i>") }
-            ToolbarButton(Icons.Default.FormatUnderlined, "Garis Bawah") { onApplyFormatting("<u>", "</u>") }
-            ToolbarButton(Icons.Default.FormatStrikethrough, "Coret") { onApplyFormatting("<s>", "</s>") }
-            ToolbarButton(Icons.Default.Image, "Gambar") { onAddImage() }
-            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "Kiri") { onSetAlignment(ParagraphAlignment.Left) }
-            ToolbarButton(Icons.Default.FormatAlignCenter, "Tengah") { onSetAlignment(ParagraphAlignment.Center) }
-            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignRight, "Kanan") { onSetAlignment(ParagraphAlignment.Right) }
-            ToolbarButton(Icons.Default.FormatAlignJustify, "Rata Kanan Kiri") { onSetAlignment(ParagraphAlignment.Justify) }
+            ToolbarButton(Icons.Default.FormatBold, "Tebal", isActive = isBoldActive, onClick = onToggleBold)
+            ToolbarButton(Icons.Default.FormatItalic, "Miring", isActive = isItalicActive, onClick = onToggleItalic)
+            ToolbarButton(Icons.Default.FormatUnderlined, "Garis Bawah", isActive = isUnderlineActive, onClick = onToggleUnderline)
+            ToolbarButton(Icons.Default.FormatStrikethrough, "Coret", isActive = isStrikeActive, onClick = onToggleStrike)
+            ToolbarButton(Icons.Default.Image, "Gambar", onClick = onAddImage)
+            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "Kiri", isActive = currentAlignment == ParagraphAlignment.Left, onClick = { onSetAlignment(ParagraphAlignment.Left) })
+            ToolbarButton(Icons.Default.FormatAlignCenter, "Tengah", isActive = currentAlignment == ParagraphAlignment.Center, onClick = { onSetAlignment(ParagraphAlignment.Center) })
+            ToolbarButton(Icons.AutoMirrored.Filled.FormatAlignRight, "Kanan", isActive = currentAlignment == ParagraphAlignment.Right, onClick = { onSetAlignment(ParagraphAlignment.Right) })
+            ToolbarButton(Icons.Default.FormatAlignJustify, "Rata Kanan Kiri", isActive = currentAlignment == ParagraphAlignment.Justify, onClick = { onSetAlignment(ParagraphAlignment.Justify) })
         }
     }
 }
 
 @Composable
-fun ToolbarButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
+fun ToolbarButton(
+    icon: ImageVector,
+    contentDescription: String,
+    isActive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val containerModifier = if (isActive) {
+        Modifier
+            .size(38.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+    } else {
+        Modifier.size(38.dp)
+    }
+    val iconTint = if (isActive) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(38.dp)
+        modifier = containerModifier
     ) {
-        Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = iconTint,
+            modifier = Modifier.size(20.dp)
+        )
     }
 }

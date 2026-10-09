@@ -213,4 +213,81 @@ class DocumentParserTest {
         assertEquals("Kemana perginya kamu  selama ini", result.text.text)
         assertEquals(0, result.text.spanStyles.size)
     }
+
+    @Test
+    fun testToggleFormattingTag() {
+        val initialText = "Halo Dunia"
+        val tfv = androidx.compose.ui.text.input.TextFieldValue(initialText, androidx.compose.ui.text.TextRange(0, 4)) // "Halo"
+
+        // First application: adds <b>Halo</b>
+        val formatted = com.astral.ebook.ui.toggleInlineFormat(
+            tfv,
+            "<b>",
+            "</b>",
+            com.astral.ebook.ui.TagType.BOLD_OPEN,
+            com.astral.ebook.ui.TagType.BOLD_CLOSE
+        )
+        assertEquals("<b>Halo</b> Dunia", formatted.text)
+        assertEquals(androidx.compose.ui.text.TextRange(3, 7), formatted.selection)
+
+        // Active state check on formatted text
+        val isActive = com.astral.ebook.ui.isInlineFormatActive(
+            formatted.text,
+            formatted.selection,
+            com.astral.ebook.ui.TagType.BOLD_OPEN,
+            com.astral.ebook.ui.TagType.BOLD_CLOSE
+        )
+        assertEquals(true, isActive)
+
+        // Second application (toggle off): cancels bold format without duplicating tags
+        val toggledOff = com.astral.ebook.ui.toggleInlineFormat(
+            formatted,
+            "<b>",
+            "</b>",
+            com.astral.ebook.ui.TagType.BOLD_OPEN,
+            com.astral.ebook.ui.TagType.BOLD_CLOSE
+        )
+        assertEquals("Halo Dunia", toggledOff.text)
+        assertEquals(androidx.compose.ui.text.TextRange(0, 4), toggledOff.selection)
+    }
+
+    @Test
+    fun testUndoRedoHistoryStack() {
+        val undoStack = mutableListOf<androidx.compose.ui.text.input.TextFieldValue>()
+        val redoStack = mutableListOf<androidx.compose.ui.text.input.TextFieldValue>()
+
+        var state = androidx.compose.ui.text.input.TextFieldValue("Versi 1")
+
+        fun updateState(newState: androidx.compose.ui.text.input.TextFieldValue) {
+            if (newState.text != state.text) {
+                undoStack.add(state)
+                redoStack.clear()
+            }
+            state = newState
+        }
+
+        updateState(androidx.compose.ui.text.input.TextFieldValue("Versi 2"))
+        updateState(androidx.compose.ui.text.input.TextFieldValue("Versi 3"))
+
+        assertEquals("Versi 3", state.text)
+        assertEquals(2, undoStack.size)
+
+        // Undo
+        val prev1 = undoStack.removeAt(undoStack.lastIndex)
+        redoStack.add(state)
+        state = prev1
+        assertEquals("Versi 2", state.text)
+
+        // Undo again
+        val prev2 = undoStack.removeAt(undoStack.lastIndex)
+        redoStack.add(state)
+        state = prev2
+        assertEquals("Versi 1", state.text)
+
+        // Redo
+        val next1 = redoStack.removeAt(redoStack.lastIndex)
+        undoStack.add(state)
+        state = next1
+        assertEquals("Versi 2", state.text)
+    }
 }
