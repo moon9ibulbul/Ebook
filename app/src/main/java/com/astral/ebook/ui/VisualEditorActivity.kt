@@ -80,8 +80,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.relocation.BringIntoViewResponder
+import androidx.compose.foundation.relocation.bringIntoViewResponder
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
@@ -90,6 +93,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -139,6 +143,17 @@ private val IMG_TAG_REGEX = Regex(
     "<img\\s+[^>]*src=[\"']([^\"']+)[\"'][^>]*>",
     RegexOption.IGNORE_CASE
 )
+
+@OptIn(ExperimentalFoundationApi::class)
+private object DisabledBringIntoViewResponder : BringIntoViewResponder {
+    override fun calculateRectForParent(localRect: Rect): Rect {
+        return Rect.Zero
+    }
+
+    override suspend fun bringChildIntoView(localRect: () -> Rect?) {
+        // Prevent auto-scrolling on focus gain
+    }
+}
 
 internal enum class TagType {
     BOLD_OPEN, BOLD_CLOSE,
@@ -754,7 +769,7 @@ class VisualEditorActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun VisualEditorScreen(
     initialContent: String,
@@ -1218,6 +1233,7 @@ fun VisualEditorScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp)
+                        .bringIntoViewResponder(DisabledBringIntoViewResponder)
                         .onGloballyPositioned { coordinates ->
                             textFieldTopInScrollable = coordinates.positionInParent().y
                         },
